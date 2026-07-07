@@ -15,7 +15,9 @@ typedef struct {
     uint8_t channel;
     uint8_t macSrc[6];
     uint8_t macDst[6];
+    uint8_t bssid[6];
     uint8_t frameSubtype;
+    char ssid[33];
 } SniffPacket;
 
 // FreeRTOS queue to safely pass data from the callback to the main loop
@@ -47,6 +49,26 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     // Extract Source and Destination MACs
     memcpy(p.macDst, &payload[4], 6);
     memcpy(p.macSrc, &payload[10], 6);
+
+    // Extract BSSID (Address 3)
+    memcpy(p.bssid, &payload[16], 6);
+
+    // Clear SSID initially
+    p.ssid[0] = '\0';
+
+    // If Beacon (8) or Probe Response (5), extract SSID
+    if (frameSubtype == 8 || frameSubtype == 5) {
+        int offset = 36;
+        if (offset + 1 < pkt->rx_ctrl.sig_len) {
+            if (payload[offset] == 0) { // Tag 0 is SSID
+                int ssid_len = payload[offset + 1];
+                if (ssid_len > 0 && ssid_len <= 32 && (offset + 2 + ssid_len <= pkt->rx_ctrl.sig_len)) {
+                    memcpy(p.ssid, &payload[offset + 2], ssid_len);
+                    p.ssid[ssid_len] = '\0';
+                }
+            }
+        }
+    }
 
     // Send the packet to the queue (non-blocking)
     // If the queue is full, we just drop the packet to prevent crashing
@@ -86,20 +108,30 @@ void loop() {
         const char* subtypeStr = "Unknown";
         switch(p.frameSubtype) {
             case 0: subtypeStr = "Association Request"; break;
+            case 1: subtypeStr = "Association Response"; break;
+            case 2: subtypeStr = "Reassociation Request"; break;
+            case 3: subtypeStr = "Reassociation Response"; break;
             case 4: subtypeStr = "Probe Request"; break;
             case 5: subtypeStr = "Probe Response"; break;
+            case 6: subtypeStr = "Timing Advertisement"; break;
+            case 7: subtypeStr = "Reserved (7)"; break;
             case 8: subtypeStr = "Beacon"; break;
+            case 9: subtypeStr = "ATIM"; break;
             case 10: subtypeStr = "Disassociation"; break;
             case 11: subtypeStr = "Authentication"; break;
             case 12: subtypeStr = "Deauthentication"; break;
+            case 13: subtypeStr = "Action"; break;
+            case 14: subtypeStr = "Action No Ack"; break;
+            case 15: subtypeStr = "Reserved (15)"; break;
         }
 
         // Print JSON to Serial (This is safe to do in the main loop)
-        Serial.printf("{\"timestamp\": %lu, \"rssi\": %d, \"channel\": %d, \"mac_src\": \"%02X:%02X:%02X:%02X:%02X:%02X\", \"mac_dst\": \"%02X:%02X:%02X:%02X:%02X:%02X\", \"type\": \"Management\", \"subtype\": \"%s\"}\n",
+        Serial.printf("{\"timestamp\": %lu, \"rssi\": %d, \"channel\": %d, \"mac_src\": \"%02X:%02X:%02X:%02X:%02X:%02X\", \"mac_dst\": \"%02X:%02X:%02X:%02X:%02X:%02X\", \"bssid\": \"%02X:%02X:%02X:%02X:%02X:%02X\", \"type\": \"Management\", \"subtype\": \"%s\", \"ssid\": \"%s\"}\n",
                       p.timestamp, p.rssi, p.channel, 
                       p.macSrc[0], p.macSrc[1], p.macSrc[2], p.macSrc[3], p.macSrc[4], p.macSrc[5],
                       p.macDst[0], p.macDst[1], p.macDst[2], p.macDst[3], p.macDst[4], p.macDst[5],
-                      subtypeStr);
+                      p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5],
+                      subtypeStr, p.ssid);
                       
         packetsProcessed++;
     }

@@ -13,8 +13,8 @@ class Controller:
         self.serial_reader.disconnect()
 
     def on_packet_received(self, packet):
-        # Update UI in thread-safe way by scheduling it
-        self.app.after(0, self.app.add_packet, packet)
+        # The GUI now uses a thread-safe queue internally
+        self.app.add_packet(packet)
 
     def run(self):
         self.app.mainloop()
