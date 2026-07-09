@@ -8,6 +8,7 @@ import collections
 import json
 import os
 import math
+from serial.tools import list_ports
 
 class App(ctk.CTk):
     def __init__(self, start_serial_cb, stop_serial_cb):
@@ -41,6 +42,10 @@ class App(ctk.CTk):
         self.alerts_list = [] # Store triggered alerts
         self.last_eviltwin_alert_time = {} # BSSID -> timestamp
         self.eviltwin_alert_index = {} # (ssid, rogue_mac) -> index in alerts_list
+        self.last_deauth_alert_time = 0.0
+        
+        # ARP tracking
+        self.arp_alerts_sent = {} # (ip, mac) -> timestamp, rate-limit ARP alerts
         
         # Persistent whitelist: ssid -> set of trusted BSSIDs
         self.whitelist_path = os.path.join(os.path.dirname(__file__), "..", "ids", "whitelist.json")
@@ -53,6 +58,7 @@ class App(ctk.CTk):
         self.create_main_content()
         
         self.after(self.update_interval, self.process_packet_queue)
+        self.after(1000, self._try_auto_connect_serial)
         
     def create_sidebar(self):
         self.sidebar_frame = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color="#18181b") # Zinc 900
@@ -207,6 +213,7 @@ class App(ctk.CTk):
         self.tree.tag_configure("eviltwin_high",   foreground="#ef4444", background="#3b0b0b")  # Red   — high confidence
         self.tree.tag_configure("eviltwin_medium", foreground="#f97316", background="#2d1500")  # Orange — medium
         self.tree.tag_configure("eviltwin_low",    foreground="#eab308", background="#2d2600")  # Yellow — low / notice
+        self.tree.tag_configure("arp_spoof", foreground="#ef4444", background="#1a0a2e")  # Purple-red — ARP spoof
         
         self.max_rows = 500
 
@@ -472,18 +479,88 @@ class App(ctk.CTk):
 
     # ────────────────────────────────────────────────────────────────────────
 
+    def _add_alert(self, alert):
+        self.alert_count += 1
+        alert.setdefault("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        alert.setdefault("last_seen", alert["time"])
+        self.alerts_list.append(alert)
+        if len(self.alerts_list) > 2000:
+            self.alerts_list.pop(0)
+        return alert
+
+    def _handle_deauth_packet(self, packet):
+        self.deauth_count += 1
+        target_mac = packet.get("mac_dst", "Unknown")
+        now = time.time()
+
+        if self.deauth_count == 1 and (now - self.last_deauth_alert_time) >= 15:
+            self.last_deauth_alert_time = now
+            self._add_alert({
+                "type": "Deauth Activity",
+                "severity": "Medium",
+                "details": f"Observed a deauthentication frame targeting {target_mac}."
+            })
+        elif self.deauth_count % 10 == 0:
+            self.last_deauth_alert_time = now
+            self._add_alert({
+                "type": "Deauth Flood",
+                "severity": "High",
+                "details": f"Detected {self.deauth_count} deauthentication frames targeting {target_mac} in the current session."
+            })
+
+    def _find_serial_ports(self):
+        try:
+            return [port.device for port in list_ports.comports()]
+        except Exception:
+            return []
+
+    def _try_auto_connect_serial(self):
+        if self.is_connected:
+            return
+
+        baud_text = self.baud_entry.get().strip() or "115200"
+        try:
+            baud = int(baud_text)
+        except ValueError:
+            baud = 115200
+
+        requested_port = self.com_port_entry.get().strip()
+        ports = [requested_port] if requested_port else self._find_serial_ports()
+        if not ports:
+            return
+
+        for port in ports:
+            self.status_label.configure(text=f"● Trying {port}...", text_color="#f59e0b")
+            success = self.start_serial_cb(port, baud)
+            if success:
+                self.com_port_entry.delete(0, tk.END)
+                self.com_port_entry.insert(0, port)
+                self.is_connected = True
+                self.connect_btn.configure(text="DISCONNECT", fg_color="#ef4444", hover_color="#dc2626")
+                self.status_label.configure(text=f"● Connected to {port}", text_color="#10b981")
+                return
+
+        self.status_label.configure(text="● Auto-connect failed", text_color="#ef4444")
+        self.after(5000, self._try_auto_connect_serial)
+
     def toggle_connection(self):
         if not self.is_connected:
             port = self.com_port_entry.get().strip()
-            baud = self.baud_entry.get().strip()
-            if port and baud:
-                success = self.start_serial_cb(port, int(baud))
+            baud_text = self.baud_entry.get().strip() or "115200"
+            if port:
+                try:
+                    baud = int(baud_text)
+                except ValueError:
+                    baud = 115200
+                success = self.start_serial_cb(port, baud)
                 if success:
                     self.is_connected = True
                     self.connect_btn.configure(text="DISCONNECT", fg_color="#ef4444", hover_color="#dc2626")
                     self.status_label.configure(text=f"● Connected to {port}", text_color="#10b981")
                 else:
                     self.status_label.configure(text="● Connection Failed", text_color="#ef4444")
+            else:
+                self.status_label.configure(text="● Enter a COM port", text_color="#ef4444")
         else:
             self.stop_serial_cb()
             self.is_connected = False
@@ -515,15 +592,7 @@ class App(ctk.CTk):
                 subtype = packet.get('subtype', '')
                 
                 if subtype == "Deauthentication":
-                    self.deauth_count += 1
-                    if self.deauth_count % 10 == 0:
-                        self.alert_count += 1
-                        self.alerts_list.append({
-                            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "type": "Deauth Flood",
-                            "severity": "High",
-                            "details": f"Target MAC: {packet.get('mac_dst', 'Unknown')}"
-                        })
+                    self._handle_deauth_packet(packet)
                         
                 bssid = packet.get('bssid', '')
                 ssid = packet.get('ssid', '')
@@ -645,6 +714,35 @@ class App(ctk.CTk):
                                 
                                 self.last_eviltwin_alert_time[bssid] = current_time
                     
+                # ─── ARP SPOOF DETECTION ───────────────────────────────────────
+                packet_type = packet.get('type', '')
+                if packet_type == "ARP" and packet.get('spoofed'):
+                    ip = packet['source_ip']
+                    new_mac = packet['mac_src']
+                    old_mac = packet.get('old_mac', '?')
+                    alert_key = (ip, new_mac)
+                    
+                    # Rate-limit: 1 alert per (ip, mac) per 10 seconds
+                    now = time.time()
+                    last_arp = self.arp_alerts_sent.get(alert_key, 0)
+                    if now - last_arp >= 10:
+                        self.alert_count += 1
+                        details = f"IP {ip} changed from {old_mac} to {new_mac}"
+                        self.alerts_list.append({
+                            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "type": "ARP Spoofing",
+                            "severity": "Critical",
+                            "details": details,
+                            "source_ip": ip,
+                            "rogue_mac": new_mac,
+                            "legit_mac": old_mac,
+                            "seen_count": 1
+                        })
+                        self.arp_alerts_sent[alert_key] = now
+                        if len(self.alerts_list) > 2000:
+                            self.alerts_list.pop(0)
+                
                 # Determine network name and rogue/legit label
                 network_name = ""
                 if bssid in self.network_map:
@@ -665,7 +763,11 @@ class App(ctk.CTk):
                     else:
                         network_name = f"[⚠ {conf}] {network_name}"
                 
-                if bssid:
+                if packet_type == "ARP":
+                    network_name = f"📡 ARP: {packet.get('source_ip', '')}"
+                    if packet.get('spoofed'):
+                        network_name += " ⚠ SPOOF"
+                elif bssid:
                     network_name = f"{network_name} [{bssid}]" if network_name else f"[{bssid}]"
                 
                 packet['network_name'] = network_name
@@ -700,9 +802,12 @@ class App(ctk.CTk):
             
             for packet in packets_to_insert:
                 subtype = packet.get('subtype', '')
+                packet_type = packet.get('type', '')
                 tags = ()
                 if packet.get('is_evil_twin'):
                     tags = (packet.get('et_tag', 'eviltwin_medium'),)
+                elif packet_type == "ARP" and packet.get('spoofed'):
+                    tags = ("arp_spoof",)
                 elif subtype == "Deauthentication":
                     tags = ("deauth",)
                 elif subtype == "Probe Request":
@@ -711,15 +816,27 @@ class App(ctk.CTk):
                     tags = ("beacon",)
                     
                 current_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                values = (
-                    current_time,
-                    f"{packet.get('rssi', '')} dBm",
-                    packet.get('channel', ''),
-                    packet.get('network_name', ''),
-                    packet.get('mac_src', ''),
-                    packet.get('mac_dst', ''),
-                    subtype
-                )
+                
+                if packet_type == "ARP":
+                    values = (
+                        current_time,
+                        "",
+                        "",
+                        packet.get('network_name', ''),
+                        packet.get('mac_src', ''),
+                        packet.get('mac_dst', ''),
+                        subtype
+                    )
+                else:
+                    values = (
+                        current_time,
+                        f"{packet.get('rssi', '')} dBm",
+                        packet.get('channel', ''),
+                        packet.get('network_name', ''),
+                        packet.get('mac_src', ''),
+                        packet.get('mac_dst', ''),
+                        subtype
+                    )
                 self.tree.insert("", "0", values=values, tags=tags)
                 
             children = self.tree.get_children()

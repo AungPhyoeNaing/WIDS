@@ -12,7 +12,17 @@ class SerialReader:
 
     def connect(self, port, baudrate):
         try:
-            self.serial = serial.Serial(port, baudrate, timeout=1)
+            self.serial = serial.Serial(port, baudrate, timeout=2)
+            self.serial.reset_input_buffer()
+            time.sleep(0.5)
+            initial_line = self.serial.readline().decode('utf-8', errors='ignore').strip()
+            if not initial_line:
+                self.serial.close()
+                self.serial = None
+                print(f"No serial data received on {port}")
+                return False
+
+            print(f"Serial data received on {port}: {initial_line[:120]}")
             self.running = True
             self.thread = threading.Thread(target=self.read_loop, daemon=True)
             self.thread.start()
