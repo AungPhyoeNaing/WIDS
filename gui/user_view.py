@@ -1,36 +1,12 @@
 import customtkinter as ctk
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# DESIGN TOKENS — match Technician View (gui/app.py) exactly
-# ──────────────────────────────────────────────────────────────────────────────
-COLORS = {
-    "bg_deep":      "#09090b",   # Zinc 950 — root background
-    "bg_card":      "#18181b",   # Zinc 900 — card surfaces
-    "bg_elevated":  "#27272a",   # Zinc 800 — nav bar, headers
-    "border":       "#27272a",   # Zinc 800 — dividers
-    "primary":      "#60a5fa",   # Blue 400 — brighter primary
-    "primary_hover": "#3b82f6",  # Blue 500
-    "success":      "#34d399",   # Emerald 400 — brighter success
-    "warning":      "#fbbf24",   # Amber 400 — brighter warning
-    "danger":       "#f87171",   # Red 400 — brighter danger
-    "text_muted":   "#d4d4d8",   # Zinc 300 — brighter secondary
-    "text_body":    "#e4e4e7",   # Zinc 200 — body text
-    "text_heading": "#f4f4f5",   # Zinc 100 — headings
-    "alert_inner":  "#1c1c1f",   # custom — alert card inner
-}
-
-SEVERITY_COLOR = {
-    "Critical": COLORS["danger"],
-    "High":     "#f97316",       # Orange 500
-    "Medium":   COLORS["warning"],
-    "Low":      COLORS["primary"],
-}
+from gui.theme import ThemeManager
 
 
 class UserView(ctk.CTkFrame):
     def __init__(self, master, switch_to_technician_cb, app_ref):
-        super().__init__(master, fg_color=COLORS["bg_deep"], corner_radius=0)
+        super().__init__(master, fg_color=ThemeManager.get("bg_root"), corner_radius=0)
         self.switch_to_technician = switch_to_technician_cb
         self.app = app_ref
 
@@ -46,6 +22,20 @@ class UserView(ctk.CTkFrame):
         self._build_nav()
         self._switch("home")
         self.after(1000, self._live_update)
+        
+        ThemeManager.on_change(self._apply_theme)
+
+    def _apply_theme(self):
+        self.configure(fg_color=ThemeManager.get("bg_root"))
+        self._switch(self.page) # This will rebuild the current page with new colors
+        # Reconfigure nav buttons
+        for pid, btn in self._nav_buttons.items():
+            active = (pid == self.page)
+            btn.configure(
+                fg_color=ThemeManager.get("primary") if active else "transparent",
+                text_color=ThemeManager.get("text_dark_only") if active else ThemeManager.get("text_muted"),
+                hover_color=ThemeManager.get("bg_elevated")
+            )
 
     def add_packet(self, packet):
         """Receive packet notification from App (stats polled live from self.app)."""
@@ -56,7 +46,7 @@ class UserView(ctk.CTkFrame):
     # ═══════════════════════════════════════════════════════════════════════════
     def _build_nav(self):
         self._nav_frame = ctk.CTkFrame(
-            self, fg_color=COLORS["bg_card"], corner_radius=0, height=64
+            self, fg_color="transparent", corner_radius=0, height=64
         )
         self._nav_frame.grid(row=0, column=0, sticky="ew")
         self._nav_frame.grid_columnconfigure(0, weight=1)
@@ -72,8 +62,8 @@ class UserView(ctk.CTkFrame):
                 text=f"{icon}  {label}",
                 font=ctk.CTkFont(size=15, weight="bold"),
                 fg_color="transparent",
-                hover_color="#3f3f46",
-                text_color=COLORS["text_muted"],
+                hover_color=ThemeManager.get("bg_elevated"),
+                text_color=ThemeManager.get("user_view_text_muted"),
                 corner_radius=8,
                 height=40,
                 width=130,
@@ -87,8 +77,8 @@ class UserView(ctk.CTkFrame):
         for pid, btn in self._nav_buttons.items():
             active = (pid == page)
             btn.configure(
-                fg_color=COLORS["primary"] if active else "transparent",
-                text_color="#ffffff" if active else COLORS["text_muted"],
+                fg_color=ThemeManager.get("primary") if active else "transparent",
+                text_color=ThemeManager.get("text_dark_only") if active else ThemeManager.get("text_muted"),
             )
         self._clear_content()
         {"home": self._home, "alert": self._alert}[page]()
@@ -106,7 +96,7 @@ class UserView(ctk.CTkFrame):
     # SHARED UI FACTORIES
     # ═══════════════════════════════════════════════════════════════════════════
     def _make_container(self):
-        c = ctk.CTkFrame(self, fg_color=COLORS["bg_deep"], corner_radius=0)
+        c = ctk.CTkFrame(self, fg_color=ThemeManager.get("bg_root"), corner_radius=0)
         c.grid(row=1, column=0, sticky="nsew")
         c.grid_columnconfigure(0, weight=1)
         c.grid_rowconfigure(1, weight=1)
@@ -114,14 +104,14 @@ class UserView(ctk.CTkFrame):
 
     def _create_stat_card(self, parent, title, col, color):
         """Exact clone of Technician View create_stat_card."""
-        card = ctk.CTkFrame(parent, fg_color=COLORS["bg_card"], corner_radius=12, height=110)
+        card = ctk.CTkFrame(parent, fg_color=ThemeManager.get("bg_card"), corner_radius=12, height=110)
         card.grid(row=0, column=col, padx=10, sticky="ew")
         card.grid_propagate(False)
         card.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
             card, text=title,
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=COLORS["text_muted"]
+            text_color=ThemeManager.get("text_muted")
         ).grid(row=0, column=0, padx=20, pady=(20, 0), sticky="w")
         val = ctk.CTkLabel(
             card, text="0",
@@ -138,7 +128,7 @@ class UserView(ctk.CTkFrame):
         ctk.CTkLabel(
             h, text=title,
             font=ctk.CTkFont(size=22, weight="bold"),
-            text_color=COLORS["text_heading"]
+            text_color=ThemeManager.get("text_heading")
         ).grid(row=0, column=0, sticky="w")
         if action_widget:
             action_widget.grid(row=0, column=1, sticky="e")
@@ -152,7 +142,9 @@ class UserView(ctk.CTkFrame):
         is_et = bool(alert.get("rogue_mac"))
         is_mesh = alert.get("is_mesh", False)
         seen = alert.get("seen_count", 1)
-        stripe = SEVERITY_COLOR.get(sev, COLORS["primary"])
+        
+        stripe = {"Critical": ThemeManager.get("alert_stripe_critical"), "High": ThemeManager.get("alert_stripe_high"),
+                  "Medium": ThemeManager.get("alert_stripe_medium"), "Low": ThemeManager.get("alert_stripe_low")}.get(sev, ThemeManager.get("alert_stripe_low"))
 
         wrapper = ctk.CTkFrame(
             self._alerts_scroll if not compact else self._home_preview_scroll,
@@ -160,7 +152,7 @@ class UserView(ctk.CTkFrame):
         )
         wrapper.pack(fill="x", padx=18 if not compact else 12, pady=5 if not compact else 4)
 
-        inner = ctk.CTkFrame(wrapper, fg_color=COLORS["alert_inner"], corner_radius=6)
+        inner = ctk.CTkFrame(wrapper, fg_color=ThemeManager.get("alert_inner"), corner_radius=6)
         inner.pack(fill="both", padx=(4, 0), pady=0)
 
         # ── Header row: TYPE + seen count + times
@@ -190,12 +182,12 @@ class UserView(ctk.CTkFrame):
         if seen > 1:
             ctk.CTkLabel(
                 hdr, text=f"  ×{seen} detected",
-                font=ctk.CTkFont(size=13), text_color="#d4d4d8"
-            ).pack(side="left", padx=8)
+                font=ctk.CTkFont(size=13), text_color=ThemeManager.get("text_muted")
+        ).pack(side="left", padx=8)
         ctk.CTkLabel(
             hdr,
             text=f"First: {alert['time']}  ·  Last: {alert.get('last_seen', alert['time'])}",
-            font=ctk.CTkFont(size=12), text_color="#787880"
+            font=ctk.CTkFont(size=12), text_color=ThemeManager.get("text_dim")
         ).pack(side="right")
 
         if compact:
@@ -204,7 +196,7 @@ class UserView(ctk.CTkFrame):
             if ssid:
                 ctk.CTkLabel(
                     inner, text=f"🌐 {ssid}",
-                    font=ctk.CTkFont(size=14), text_color=COLORS["text_body"],
+                    font=ctk.CTkFont(size=14), text_color=ThemeManager.get("text_body"),
                     anchor="w"
                 ).pack(fill="x", padx=14, pady=(0, 8))
             return wrapper
@@ -215,7 +207,7 @@ class UserView(ctk.CTkFrame):
                 ctk.CTkLabel(
                     inner,
                     text="ℹ️  Both devices look like normal routers. This is likely a safe Wi-Fi extender or mesh network, but please double-check.",
-                    font=ctk.CTkFont(size=14), text_color="#60a5fa",
+                    font=ctk.CTkFont(size=14), text_color=ThemeManager.get("primary"),
                     justify="left", wraplength=840
                 ).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
 
@@ -223,24 +215,24 @@ class UserView(ctk.CTkFrame):
             ctk.CTkLabel(
                 inner, text=f"🌐  Network Name:  {ssid}",
                 font=ctk.CTkFont(size=15, weight="bold"),
-                text_color="#e4e4e7"
+                text_color=ThemeManager.get("text_body")
             ).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
 
             # Rogue MAC
             mf = ctk.CTkFrame(inner, fg_color="transparent")
             mf.pack(fill="x", padx=14, pady=(6, 2))
             ctk.CTkLabel(mf, text="🔴  Suspicious Device (Attacker):",
-                         font=ctk.CTkFont(size=14, weight="bold"), text_color="#f87171").pack(side="left")
+                         font=ctk.CTkFont(size=14, weight="bold"), text_color=ThemeManager.get("danger")).pack(side="left")
             ctk.CTkLabel(mf, text=f"  Device ID: {alert.get('rogue_mac', '?')}",
-                         font=ctk.CTkFont(size=14, family="Courier"), text_color="#fca5a5").pack(side="left")
+                         font=ctk.CTkFont(size=14, family="Courier"), text_color=ThemeManager.get("danger")).pack(side="left")
 
             # Legit MAC
             mf2 = ctk.CTkFrame(inner, fg_color="transparent")
             mf2.pack(fill="x", padx=14, pady=(0, 2))
             ctk.CTkLabel(mf2, text="✅  Your Real Router:",
-                         font=ctk.CTkFont(size=14, weight="bold"), text_color="#34d399").pack(side="left")
+                         font=ctk.CTkFont(size=14, weight="bold"), text_color=ThemeManager.get("success")).pack(side="left")
             ctk.CTkLabel(mf2, text=f"  Device ID: {alert.get('legit_mac', '?')}",
-                         font=ctk.CTkFont(size=14, family="Courier"), text_color="#6ee7b7").pack(side="left")
+                         font=ctk.CTkFont(size=14, family="Courier"), text_color=ThemeManager.get("success")).pack(side="left")
 
             # Technical details are hidden in User View
 
@@ -253,12 +245,12 @@ class UserView(ctk.CTkFrame):
             else:
                 rec_text = "💡 Recommended: 1) Do NOT connect to this Wi-Fi network right now. 2) Check the sticker on the back of your router to verify its Device ID."
 
-            act = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
+            act = ctk.CTkFrame(inner, fg_color=ThemeManager.get("bg_elevated"), corner_radius=6)
             act.pack(fill="x", padx=14, pady=(4, 4))
             ctk.CTkLabel(
                 act,
                 text=rec_text,
-                font=ctk.CTkFont(size=13), text_color="#d4d4d8",
+                font=ctk.CTkFont(size=13), text_color=ThemeManager.get("text_muted"),
                 justify="left", wraplength=840
             ).pack(padx=10, pady=6, anchor="w")
 
@@ -278,7 +270,7 @@ class UserView(ctk.CTkFrame):
             ctk.CTkButton(
                 btn_f, text="✅ This is safe (e.g. my Wi-Fi Extender)",
                 font=ctk.CTkFont(size=14), height=36,
-                fg_color="#166534", hover_color="#14532d",
+                fg_color=ThemeManager.get("trust_btn_fg"), hover_color=ThemeManager.get("trust_btn_hover"),
                 command=make_trust_cmd(_ssid, _all)
             ).pack(side="left")
         else:
@@ -302,7 +294,7 @@ class UserView(ctk.CTkFrame):
             if explanation:
                 ctk.CTkLabel(
                     inner, text=f"🔍 What this means: {explanation}",
-                    font=ctk.CTkFont(size=14, weight="bold"), text_color="#fb923c",
+                    font=ctk.CTkFont(size=14, weight="bold"), text_color=ThemeManager.get("warning"),
                     justify="left", wraplength=840
                 ).pack(fill="x", padx=14, pady=(4, 4), anchor="w")
 
@@ -310,11 +302,11 @@ class UserView(ctk.CTkFrame):
 
             # Recommended action
             if action:
-                act = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
+                act = ctk.CTkFrame(inner, fg_color=ThemeManager.get("bg_elevated"), corner_radius=6)
                 act.pack(fill="x", padx=14, pady=(4, 14))
                 ctk.CTkLabel(
                     act, text=action,
-                    font=ctk.CTkFont(size=13), text_color="#d4d4d8",
+                    font=ctk.CTkFont(size=13), text_color=ThemeManager.get("text_muted"),
                     justify="left", wraplength=840
                 ).pack(padx=10, pady=6, anchor="w")
             else:
@@ -335,14 +327,14 @@ class UserView(ctk.CTkFrame):
         top_frame.grid_columnconfigure((0, 1), weight=1)
 
         self._stat_labels["devices"] = self._create_stat_card(
-            top_frame, "TOTAL DEVICES", 0, COLORS["primary"]
+            top_frame, "TOTAL DEVICES", 0, ThemeManager.get("primary")
         )
         self._secure_label = self._create_stat_card(
-            top_frame, "SECURITY STATUS", 1, COLORS["success"]
+            top_frame, "SECURITY STATUS", 1, ThemeManager.get("success")
         )
 
         # Recent alerts area (row 1) — fills remaining space
-        log_frame = ctk.CTkFrame(c, fg_color=COLORS["bg_card"], corner_radius=12)
+        log_frame = ctk.CTkFrame(c, fg_color=ThemeManager.get("bg_card"), corner_radius=12)
         log_frame.grid(row=1, column=0, padx=30, pady=(10, 30), sticky="nsew")
         log_frame.grid_rowconfigure(1, weight=1)
         log_frame.grid_columnconfigure(0, weight=1)
@@ -353,20 +345,20 @@ class UserView(ctk.CTkFrame):
         ctk.CTkLabel(
             log_hdr, text="Recent Alerts",
             font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=COLORS["text_heading"]
+            text_color=ThemeManager.get("text_heading")
         ).grid(row=0, column=0, sticky="w")
 
         ctk.CTkButton(
             log_hdr, text="View All \u2192",
             font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color="transparent", hover_color=COLORS["bg_elevated"],
-            text_color=COLORS["primary"], height=36, width=100,
+            fg_color="transparent", hover_color=ThemeManager.get("bg_elevated"),
+            text_color=ThemeManager.get("primary"), height=36, width=100,
             command=lambda: self._switch("alert")
         ).grid(row=0, column=1, sticky="e")
 
         self._home_preview_scroll = ctk.CTkScrollableFrame(
             log_frame, fg_color="transparent",
-            scrollbar_button_color="#2a2a4a", scrollbar_button_hover_color="#3a3a5a"
+            scrollbar_button_color=ThemeManager.get("bg_elevated"), scrollbar_button_hover_color=ThemeManager.get("border")
         )
         self._home_preview_scroll.grid(row=1, column=0, sticky="nsew", padx=25, pady=(0, 25))
         self._home_preview_scroll.grid_columnconfigure(0, weight=1)
@@ -382,13 +374,13 @@ class UserView(ctk.CTkFrame):
         critical = sum(1 for a in alerts if a.get("severity") == "Critical")
         high = sum(1 for a in alerts if a.get("severity") == "High")
         if critical > 0:
-            txt, clr = f"⚠  {critical} critical alert(s)", COLORS["danger"]
+            txt, clr = f"⚠  {critical} critical alert(s)", ThemeManager.get("danger")
         elif high > 0:
-            txt, clr = f"⚠  {high} high alert(s)", COLORS["warning"]
+            txt, clr = f"⚠  {high} high alert(s)", ThemeManager.get("warning")
         elif alerts:
-            txt, clr = f"⚠  {len(alerts)} alert(s)", COLORS["warning"]
+            txt, clr = f"⚠  {len(alerts)} alert(s)", ThemeManager.get("warning")
         else:
-            txt, clr = "✅  Secure", COLORS["success"]
+            txt, clr = "✅  Secure", ThemeManager.get("success")
         self._secure_label.configure(text=txt, text_color=clr)
 
     def _update_secure_status(self):
@@ -399,20 +391,20 @@ class UserView(ctk.CTkFrame):
         critical = sum(1 for a in alerts if a.get("severity") == "Critical")
         high = sum(1 for a in alerts if a.get("severity") == "High")
         if critical > 0:
-            txt, clr = f"⚠️  {critical} critical alert(s)", COLORS["danger"]
+            txt, clr = f"⚠️  {critical} critical alert(s)", ThemeManager.get("danger")
         elif high > 0:
-            txt, clr = f"⚠️  {high} high alert(s)", COLORS["warning"]
+            txt, clr = f"⚠️  {high} high alert(s)", ThemeManager.get("warning")
         elif alerts:
-            txt, clr = f"⚠️  {len(alerts)} alert(s)", COLORS["warning"]
+            txt, clr = f"⚠️  {len(alerts)} alert(s)", ThemeManager.get("warning")
         else:
-            txt, clr = "✅  Secure \u2014 No threats detected", COLORS["success"]
+            txt, clr = "✅  Secure \u2014 No threats detected", ThemeManager.get("success")
         self._secure_label.configure(text=txt, text_color=clr)
 
     def _update_devices_count(self):
         if self._devices_label is None or not self._devices_label.winfo_exists():
             return
         count = len(self.app.network_map)
-        self._devices_label.configure(text=str(count), text_color=COLORS["primary"])
+        self._devices_label.configure(text=str(count), text_color=ThemeManager.get("primary"))
 
     def _update_home_stats(self):
         lbl = self._stat_labels.get("devices")
@@ -451,7 +443,7 @@ class UserView(ctk.CTkFrame):
             ctk.CTkLabel(
                 self._home_preview_scroll,
                 text="🛡️  No alerts — your network is secure",
-                font=ctk.CTkFont(size=16), text_color=COLORS["text_muted"]
+                font=ctk.CTkFont(size=16), text_color=ThemeManager.get("text_muted")
             ).pack(pady=40)
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -463,7 +455,7 @@ class UserView(ctk.CTkFrame):
         # Header with count
         count_lbl = ctk.CTkLabel(
             container, text="",
-            font=ctk.CTkFont(size=15), text_color=COLORS["text_muted"]
+            font=ctk.CTkFont(size=15), text_color=ThemeManager.get("text_muted")
         )
         def make_header():
             self._make_header(container, "Security Alerts", count_lbl)
@@ -473,7 +465,7 @@ class UserView(ctk.CTkFrame):
         container.grid_rowconfigure(1, weight=1)
         self._alerts_scroll = ctk.CTkScrollableFrame(
             container, fg_color="transparent",
-            scrollbar_button_color="#2a2a4a", scrollbar_button_hover_color="#3a3a5a"
+            scrollbar_button_color=ThemeManager.get("bg_elevated"), scrollbar_button_hover_color=ThemeManager.get("border")
         )
         self._alerts_scroll.grid(row=1, column=0, sticky="nsew", padx=25, pady=(0, 25))
         self._alerts_scroll.grid_columnconfigure(0, weight=1)
@@ -517,7 +509,7 @@ class UserView(ctk.CTkFrame):
             ctk.CTkLabel(
                 self._alerts_scroll,
                 text="🛡️  No alerts recorded — your network looks secure",
-                font=ctk.CTkFont(size=16), text_color=COLORS["text_muted"]
+                font=ctk.CTkFont(size=16), text_color=ThemeManager.get("text_muted")
             ).pack(pady=60)
 
     # ═══════════════════════════════════════════════════════════════════════════

@@ -9,8 +9,10 @@ import json
 import os
 import math
 from serial.tools import list_ports
-from PIL import Image
+from PIL import Image, ImageDraw
 from gui.user_view import UserView
+from gui.theme import ThemeManager
+
 
 class App(ctk.CTk):
     def __init__(self, start_serial_cb, stop_serial_cb):
@@ -20,7 +22,8 @@ class App(ctk.CTk):
         self.geometry("1100x700")
         
         # Premium dark mode theme
-        ctk.set_appearance_mode("dark")
+        ThemeManager.init()
+        ThemeManager.on_change(self._apply_theme)
         
         self.start_serial_cb = start_serial_cb
         self.stop_serial_cb = stop_serial_cb
@@ -68,13 +71,19 @@ class App(ctk.CTk):
         self.after(1000, self._try_auto_connect_serial)
         
     def create_sidebar(self):
-        self.sidebar_frame = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color="#18181b") # Zinc 900
+        self.sidebar_frame = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color=ThemeManager.get("bg_sidebar"))
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
         self.sidebar_frame.grid_rowconfigure(6, weight=1)
         
         logo_path = os.path.join(os.path.dirname(__file__), "wids_logo.jpg")
         try:
-            logo_img = ctk.CTkImage(light_image=Image.open(logo_path), dark_image=Image.open(logo_path), size=(40, 40))
+            pil_img = Image.open(logo_path).convert("RGBA")
+            mask = Image.new("L", pil_img.size, 0)
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0) + pil_img.size, fill=255)
+            pil_img.putalpha(mask)
+            
+            logo_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(40, 40))
             self.logo_label = ctk.CTkLabel(self.sidebar_frame, text=" WIDS", image=logo_img, compound="left", font=ctk.CTkFont(family="Consolas", size=26, weight="bold"))
         except Exception:
             self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="WIDS", font=ctk.CTkFont(family="Consolas", size=26, weight="bold"))
@@ -90,16 +99,16 @@ class App(ctk.CTk):
         self.connect_btn = ctk.CTkButton(
             self.sidebar_frame, text="CONNECT", height=45, 
             font=ctk.CTkFont(size=14, weight="bold"), 
-            fg_color="#3b82f6", hover_color="#2563eb", # Blue 500
+            fg_color=ThemeManager.get("primary"), hover_color=ThemeManager.get("primary_hover"),
             command=self.toggle_connection
         )
         self.connect_btn.grid(row=3, column=0, padx=20, pady=(20, 10), sticky="ew")
         
         # Connection status indicator
-        self.status_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="#27272a", corner_radius=8, height=45)
+        self.status_frame = ctk.CTkFrame(self.sidebar_frame, fg_color=ThemeManager.get("bg_elevated"), corner_radius=8, height=45)
         self.status_frame.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
         self.status_frame.pack_propagate(False)
-        self.status_label = ctk.CTkLabel(self.status_frame, text="● Disconnected", text_color="#ef4444", font=ctk.CTkFont(size=14, weight="bold"))
+        self.status_label = ctk.CTkLabel(self.status_frame, text="● Disconnected", text_color=ThemeManager.get("danger"), font=ctk.CTkFont(size=14, weight="bold"))
         self.status_label.pack(expand=True)
         
         self.is_connected = False
@@ -107,21 +116,32 @@ class App(ctk.CTk):
         self.view_alerts_btn = ctk.CTkButton(
             self.sidebar_frame, text="VIEW ALERTS", height=45, 
             font=ctk.CTkFont(size=14, weight="bold"), 
-            fg_color="#ef4444", hover_color="#dc2626", # Red 500
+            fg_color=ThemeManager.get("danger"), hover_color=ThemeManager.get("danger_hover"),
             command=self.show_alerts_window
         )
         self.view_alerts_btn.grid(row=5, column=0, padx=20, pady=(10, 10), sticky="ew")
 
+        # Theme toggle button
+        toggle_text = "☀️ Light Mode" if ThemeManager.is_dark() else "🌙 Dark Mode"
+        self.theme_toggle_btn = ctk.CTkButton(
+            self.sidebar_frame, text=toggle_text, height=35,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="transparent", text_color=ThemeManager.get("text_muted"),
+            hover_color=ThemeManager.get("bg_elevated"),
+            command=self.toggle_theme
+        )
+        self.theme_toggle_btn.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="s")
+
         self.switch_view_btn = ctk.CTkButton(
             self.sidebar_frame, text="\U0001F464  Switch to User View", height=40,
             font=ctk.CTkFont(size=13, weight="bold"),
-            fg_color="#6c63ff", hover_color="#5a52d5",
+            fg_color=ThemeManager.get("accent"), hover_color=ThemeManager.get("accent_hover"),
             command=self.toggle_view
         )
-        self.switch_view_btn.grid(row=6, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.switch_view_btn.grid(row=7, column=0, padx=20, pady=(0, 20), sticky="ew")
 
     def create_main_content(self):
-        self.main_frame = ctk.CTkFrame(self, fg_color="#09090b", corner_radius=0) # Zinc 950
+        self.main_frame = ctk.CTkFrame(self, fg_color=ThemeManager.get("bg_root"), corner_radius=0)
         self.main_frame.grid(row=0, column=1, sticky="nsew")
         self.main_frame.grid_rowconfigure(1, weight=1)
         self.main_frame.grid_columnconfigure(0, weight=1)
@@ -131,12 +151,12 @@ class App(ctk.CTk):
         self.stats_frame.grid(row=0, column=0, padx=30, pady=(30, 10), sticky="ew")
         self.stats_frame.grid_columnconfigure((0,1,2), weight=1)
         
-        self.stat_packets = self.create_stat_card(self.stats_frame, "TOTAL PACKETS", "0", 0, "#10b981") # Emerald 500
-        self.stat_deauth = self.create_stat_card(self.stats_frame, "DEAUTH FRAMES", "0", 1, "#f59e0b") # Amber 500
-        self.stat_alerts = self.create_stat_card(self.stats_frame, "ALERTS TRIGGERED", "0", 2, "#ef4444") # Red 500
+        self.stat_packets = self.create_stat_card(self.stats_frame, "TOTAL PACKETS", "0", 0, ThemeManager.get("success"))
+        self.stat_deauth = self.create_stat_card(self.stats_frame, "DEAUTH FRAMES", "0", 1, ThemeManager.get("warning"))
+        self.stat_alerts = self.create_stat_card(self.stats_frame, "ALERTS TRIGGERED", "0", 2, ThemeManager.get("danger"))
         
         # Log frame (Bottom)
-        self.log_frame = ctk.CTkFrame(self.main_frame, fg_color="#18181b", corner_radius=12)
+        self.log_frame = ctk.CTkFrame(self.main_frame, fg_color=ThemeManager.get("bg_card"), corner_radius=12)
         self.log_frame.grid(row=1, column=0, padx=30, pady=(10, 30), sticky="nsew")
         self.log_frame.grid_rowconfigure(1, weight=1)
         self.log_frame.grid_columnconfigure(0, weight=1)
@@ -145,7 +165,7 @@ class App(ctk.CTk):
         self.log_header.grid(row=0, column=0, padx=25, pady=(20, 10), sticky="ew")
         self.log_frame.grid_columnconfigure(0, weight=1)
         
-        self.title_label = ctk.CTkLabel(self.log_header, text="Live Traffic Stream", font=ctk.CTkFont(size=18, weight="bold"), text_color="#f4f4f5")
+        self.title_label = ctk.CTkLabel(self.log_header, text="Live Traffic Stream", font=ctk.CTkFont(size=18, weight="bold"), text_color=ThemeManager.get("text_heading"))
         self.title_label.pack(side="left")
         
         # Filters and Controls
@@ -156,52 +176,29 @@ class App(ctk.CTk):
         self.search_entry.pack(side="left", padx=10)
         
         self.show_beacons = tk.BooleanVar(value=True)
-        self.cb_beacons = ctk.CTkCheckBox(self.filter_frame, text="Beacons", variable=self.show_beacons, width=60, fg_color="#71717a")
+        self.cb_beacons = ctk.CTkCheckBox(self.filter_frame, text="Beacons", variable=self.show_beacons, width=60, fg_color=ThemeManager.get("tag_beacon"))
         self.cb_beacons.pack(side="left", padx=10)
         
         self.show_probes = tk.BooleanVar(value=True)
-        self.cb_probes = ctk.CTkCheckBox(self.filter_frame, text="Probes", variable=self.show_probes, width=60, fg_color="#8b5cf6")
+        self.cb_probes = ctk.CTkCheckBox(self.filter_frame, text="Probes", variable=self.show_probes, width=60, fg_color=ThemeManager.get("tag_probe"))
         self.cb_probes.pack(side="left", padx=10)
 
         self.show_deauths = tk.BooleanVar(value=True)
-        self.cb_deauths = ctk.CTkCheckBox(self.filter_frame, text="Deauths", variable=self.show_deauths, width=60, fg_color="#ef4444")
+        self.cb_deauths = ctk.CTkCheckBox(self.filter_frame, text="Deauths", variable=self.show_deauths, width=60, fg_color=ThemeManager.get("danger"))
         self.cb_deauths.pack(side="left", padx=10)
         
         self.is_paused = False
-        self.btn_pause = ctk.CTkButton(self.filter_frame, text="⏸ Pause", width=70, fg_color="#3f3f46", hover_color="#27272a", command=self.toggle_pause)
+        self.btn_pause = ctk.CTkButton(self.filter_frame, text="⏸ Pause", width=70, fg_color=ThemeManager.get("btn_pause_fg"), hover_color=ThemeManager.get("btn_pause_hover"), command=self.toggle_pause)
         self.btn_pause.pack(side="left", padx=(10, 5))
         
-        self.btn_clear = ctk.CTkButton(self.filter_frame, text="🗑 Clear", width=70, fg_color="#b91c1c", hover_color="#991b1b", command=self.clear_tree)
+        self.btn_clear = ctk.CTkButton(self.filter_frame, text="🗑 Clear", width=70, fg_color=ThemeManager.get("btn_clear_fg"), hover_color=ThemeManager.get("btn_clear_hover"), command=self.clear_tree)
         self.btn_clear.pack(side="left", padx=(5, 0))
         
-        # Themed Treeview for dark mode
-        style = ttk.Style()
-        style.theme_use("default")
-        
-        # Modern Treeview Styling
-        bg_color = "#18181b"
-        header_color = "#27272a"
-        text_color = "#a1a1aa"
-        selected_bg = "#3b82f6"
-        
-        style.configure("Treeview", 
-                        background=bg_color,
-                        foreground="#e4e4e7",
-                        rowheight=35,
-                        fieldbackground=bg_color,
-                        bordercolor=bg_color,
-                        borderwidth=0,
-                        font=("Helvetica", 11))
-                        
-        style.map('Treeview', background=[('selected', selected_bg)])
-        
-        style.configure("Treeview.Heading", 
-                        background=header_color,
-                        foreground=text_color,
-                        relief="flat",
-                        font=("Helvetica", 11, "bold"))
-                        
-        style.map("Treeview.Heading", background=[('active', '#3f3f46')])
+        # Themed Treeview
+        self.style = ttk.Style()
+        self.style.theme_use("default")
+        self._apply_tree_style()
+
 
         self.tree = ttk.Treeview(self.log_frame, columns=("time", "rssi", "ch", "network", "src", "dst", "subtype"), show="headings")
         self.tree.heading("time", text="TIME")
@@ -227,24 +224,54 @@ class App(ctk.CTk):
         self.tree.configure(yscrollcommand=self.scrollbar.set)
         
         # Setup tags for color coding rows
-        self.tree.tag_configure("deauth", foreground="#ef4444")
-        self.tree.tag_configure("probe", foreground="#8b5cf6")
-        self.tree.tag_configure("beacon", foreground="#71717a")
-        self.tree.tag_configure("eviltwin_high",   foreground="#ef4444", background="#3b0b0b")  # Red   — high confidence
-        self.tree.tag_configure("eviltwin_medium", foreground="#f97316", background="#2d1500")  # Orange — medium
-        self.tree.tag_configure("eviltwin_low",    foreground="#eab308", background="#2d2600")  # Yellow — low / notice
-        self.tree.tag_configure("arp_spoof", foreground="#ef4444", background="#1a0a2e")  # Purple-red — ARP spoof
+        self._apply_tree_tags()
         
         self.max_rows = 500
 
+    def _apply_tree_style(self):
+        bg_color = ThemeManager.get("tree_bg")
+        header_bg = ThemeManager.get("tree_header_bg")
+        header_fg = ThemeManager.get("tree_header_fg")
+        tree_fg = ThemeManager.get("tree_fg")
+        selected_bg = ThemeManager.get("tree_selected")
+        tree_border = ThemeManager.get("tree_border")
+        
+        self.style.configure("Treeview", 
+                        background=bg_color,
+                        foreground=tree_fg,
+                        rowheight=35,
+                        fieldbackground=bg_color,
+                        bordercolor=tree_border,
+                        borderwidth=0,
+                        font=("Helvetica", 11))
+                        
+        self.style.map('Treeview', background=[('selected', selected_bg)])
+        
+        self.style.configure("Treeview.Heading", 
+                        background=header_bg,
+                        foreground=header_fg,
+                        relief="flat",
+                        font=("Helvetica", 11, "bold"))
+                        
+        self.style.map("Treeview.Heading", background=[('active', ThemeManager.get("bg_elevated"))])
+        
+    def _apply_tree_tags(self):
+        self.tree.tag_configure("deauth", foreground=ThemeManager.get("tag_deauth"))
+        self.tree.tag_configure("probe", foreground=ThemeManager.get("tag_probe"))
+        self.tree.tag_configure("beacon", foreground=ThemeManager.get("tag_beacon"))
+        self.tree.tag_configure("eviltwin_high",   foreground=ThemeManager.get("tag_eviltwin_high_fg"), background=ThemeManager.get("tag_eviltwin_high_bg"))
+        self.tree.tag_configure("eviltwin_medium", foreground=ThemeManager.get("tag_eviltwin_medium_fg"), background=ThemeManager.get("tag_eviltwin_medium_bg"))
+        self.tree.tag_configure("eviltwin_low",    foreground=ThemeManager.get("tag_eviltwin_low_fg"), background=ThemeManager.get("tag_eviltwin_low_bg"))
+        self.tree.tag_configure("arp_spoof", foreground=ThemeManager.get("tag_arp_spoof_fg"), background=ThemeManager.get("tag_arp_spoof_bg"))
+
     def create_stat_card(self, parent, title, value, col, highlight_color):
-        card = ctk.CTkFrame(parent, fg_color="#18181b", corner_radius=12, height=110)
+        card = ctk.CTkFrame(parent, fg_color=ThemeManager.get("bg_card"), corner_radius=12, height=110)
         card.grid(row=0, column=col, padx=10, sticky="ew")
         card.grid_propagate(False)
         card.grid_rowconfigure((0,1), weight=1)
         card.grid_columnconfigure(0, weight=1)
         
-        title_lbl = ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=12, weight="bold"), text_color="#a1a1aa")
+        title_lbl = ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("text_muted"))
         title_lbl.grid(row=0, column=0, padx=20, pady=(20, 0), sticky="w")
         
         val_lbl = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=36, weight="bold"), text_color=highlight_color)
@@ -616,8 +643,55 @@ class App(ctk.CTk):
         else:
             self.stop_serial_cb()
             self.is_connected = False
-            self.connect_btn.configure(text="CONNECT", fg_color="#3b82f6", hover_color="#2563eb")
-            self.status_label.configure(text="● Disconnected", text_color="#ef4444")
+            self.connect_btn.configure(text="CONNECT", fg_color=ThemeManager.get("primary"), hover_color=ThemeManager.get("primary_hover"))
+            self.status_label.configure(text="● Disconnected", text_color=ThemeManager.get("danger"))
+
+    def toggle_theme(self):
+        ThemeManager.toggle()
+
+    def _apply_theme(self):
+        # Sidebar
+        self.sidebar_frame.configure(fg_color=ThemeManager.get("bg_sidebar"))
+        self.connect_btn.configure(fg_color=ThemeManager.get("danger") if self.is_connected else ThemeManager.get("primary"),
+                                   hover_color=ThemeManager.get("danger_hover") if self.is_connected else ThemeManager.get("primary_hover"))
+        self.status_frame.configure(fg_color=ThemeManager.get("bg_elevated"))
+        self.view_alerts_btn.configure(fg_color=ThemeManager.get("danger"), hover_color=ThemeManager.get("danger_hover"))
+        
+        toggle_text = "☀️ Light Mode" if ThemeManager.is_dark() else "🌙 Dark Mode"
+        self.theme_toggle_btn.configure(text=toggle_text, text_color=ThemeManager.get("text_muted"), hover_color=ThemeManager.get("bg_elevated"))
+        self.switch_view_btn.configure(fg_color=ThemeManager.get("accent"), hover_color=ThemeManager.get("accent_hover"))
+
+        # Main Content
+        self.main_frame.configure(fg_color=ThemeManager.get("bg_root"))
+        self.log_frame.configure(fg_color=ThemeManager.get("bg_card"))
+        self.title_label.configure(text_color=ThemeManager.get("text_heading"))
+        
+        self.cb_beacons.configure(fg_color=ThemeManager.get("tag_beacon"))
+        self.cb_probes.configure(fg_color=ThemeManager.get("tag_probe"))
+        self.cb_deauths.configure(fg_color=ThemeManager.get("danger"))
+        self.btn_pause.configure(fg_color=ThemeManager.get("btn_pause_fg"), hover_color=ThemeManager.get("btn_pause_hover"))
+        self.btn_clear.configure(fg_color=ThemeManager.get("btn_clear_fg"), hover_color=ThemeManager.get("btn_clear_hover"))
+        
+        # Stat cards
+        for card in self.stats_frame.winfo_children():
+            if isinstance(card, ctk.CTkFrame):
+                card.configure(fg_color=ThemeManager.get("bg_card"))
+                for child in card.winfo_children():
+                    if isinstance(child, ctk.CTkLabel):
+                        # The title label is the one that's not the value (which has the highlight color)
+                        # So we only update text_muted labels
+                        if child.cget("text") in ["TOTAL PACKETS", "DEAUTH FRAMES", "ALERTS TRIGGERED"]:
+                            child.configure(text_color=ThemeManager.get("text_muted"))
+        
+        # Stat card values (highlight colors)
+        self.stat_packets.configure(text_color=ThemeManager.get("success"))
+        self.stat_deauth.configure(text_color=ThemeManager.get("warning"))
+        self.stat_alerts.configure(text_color=ThemeManager.get("danger"))
+
+        # Treeview
+        self._apply_tree_style()
+        self._apply_tree_tags()
+
 
     def toggle_view(self):
         if self.current_view == "technician":
@@ -923,27 +997,27 @@ class App(ctk.CTk):
         alerts_win = ctk.CTkToplevel(self)
         alerts_win.title("Sentinel WIDS — Alerts")
         alerts_win.geometry("960x600")
-        alerts_win.configure(fg_color="#09090b")
+        alerts_win.configure(fg_color=ThemeManager.get("bg_root"))
         alerts_win.transient(self)
         
         # ── Header bar ──────────────────────────────────────────────────────
-        hdr = ctk.CTkFrame(alerts_win, fg_color="#18181b", corner_radius=0, height=60)
+        hdr = ctk.CTkFrame(alerts_win, fg_color=ThemeManager.get("bg_sidebar"), corner_radius=0, height=60)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
         
-        ctk.CTkLabel(hdr, text="🚨  ALERTS HISTORY", font=ctk.CTkFont(size=20, weight="bold"), text_color="#f4f4f5").pack(side="left", padx=24, pady=14)
+        ctk.CTkLabel(hdr, text="🚨  ALERTS HISTORY", font=ctk.CTkFont(size=20, weight="bold"), text_color=ThemeManager.get("text_heading")).pack(side="left", padx=24, pady=14)
         
         total_lbl = ctk.CTkLabel(hdr, text=f"{len(self.alerts_list)} alert(s)  ·  {sum(1 for a in self.alerts_list if a.get('severity') == 'Critical')} critical",
-                                  font=ctk.CTkFont(size=13), text_color="#71717a")
+                                  font=ctk.CTkFont(size=13), text_color=ThemeManager.get("text_dim"))
         total_lbl.pack(side="right", padx=24)
         
         # ── Scrollable cards ────────────────────────────────────────────────
-        scroll = ctk.CTkScrollableFrame(alerts_win, fg_color="#09090b", corner_radius=0)
+        scroll = ctk.CTkScrollableFrame(alerts_win, fg_color=ThemeManager.get("bg_root"), corner_radius=0)
         scroll.pack(fill="both", expand=True, padx=0, pady=0)
         
         if not self.alerts_list:
             ctk.CTkLabel(scroll, text="✅  No alerts have been triggered yet.",
-                         font=ctk.CTkFont(size=15), text_color="#52525b").pack(pady=60)
+                         font=ctk.CTkFont(size=15), text_color=ThemeManager.get("text_dim")).pack(pady=60)
             return
         
         # Sort: Critical first, then High, then others; newest first within same severity
@@ -959,15 +1033,15 @@ class App(ctk.CTk):
             is_mesh = alert.get("is_mesh", False)
             seen_count = alert.get("seen_count", 1)
             
-            stripe_color = {"Critical": "#ef4444", "High": "#f97316",
-                            "Medium": "#eab308", "Low": "#3b82f6"}.get(sev, "#3b82f6")
+            stripe_color = {"Critical": ThemeManager.get("alert_stripe_critical"), "High": ThemeManager.get("alert_stripe_high"),
+                            "Medium": ThemeManager.get("alert_stripe_medium"), "Low": ThemeManager.get("alert_stripe_low")}.get(sev, ThemeManager.get("alert_stripe_low"))
             text_color   = stripe_color
             
             # Outer wrapper gives left-border stripe effect
             wrapper = ctk.CTkFrame(scroll, fg_color=stripe_color, corner_radius=8)
             wrapper.pack(fill="x", padx=18, pady=5)
             
-            inner = ctk.CTkFrame(wrapper, fg_color="#1c1c1f", corner_radius=6)
+            inner = ctk.CTkFrame(wrapper, fg_color=ThemeManager.get("alert_inner"), corner_radius=6)
             inner.pack(fill="both", padx=(4, 0), pady=0)
             
             # ── Row 1: Type badge · seen count · time ────────────────────────
@@ -979,61 +1053,61 @@ class App(ctk.CTk):
             
             if seen_count > 1:
                 badge = ctk.CTkLabel(r1, text=f"  ×{seen_count} detected",
-                                     font=ctk.CTkFont(size=12), text_color="#a1a1aa")
+                                     font=ctk.CTkFont(size=12), text_color=ThemeManager.get("text_muted"))
                 badge.pack(side="left", padx=8)
             
             ctk.CTkLabel(r1, text=f"First: {alert['time']}  ·  Last: {alert.get('last_seen', alert['time'])}",
-                         font=ctk.CTkFont(size=11), text_color="#52525b").pack(side="right")
+                         font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_dim")).pack(side="right")
             
             # ── Evil-Twin specific body ───────────────────────────────────────
             if is_et:
                 if is_mesh:
                     ctk.CTkLabel(inner,
                                  text="ℹ️  Both APs share router-vendor MACs — this may be a mesh network or Wi-Fi extender. Verify manually.",
-                                 font=ctk.CTkFont(size=12), text_color="#60a5fa",
+                                 font=ctk.CTkFont(size=12), text_color=ThemeManager.get("primary"),
                                  justify="left", wraplength=840).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
                 
                 ssid_val = alert.get('ssid', 'Unknown')
                 ctk.CTkLabel(inner, text=f"🌐  SSID:  {ssid_val}",
                              font=ctk.CTkFont(size=13, weight="bold"),
-                             text_color="#d4d4d8").pack(fill="x", padx=14, pady=(4, 0), anchor="w")
+                             text_color=ThemeManager.get("text_body")).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
                 
                 all_bssids = alert.get("all_bssids", [])
                 if all_bssids:
                     bssids_str = ", ".join(all_bssids)
                     ctk.CTkLabel(inner, text=f"📍 All Known BSSIDs for SSID: {bssids_str}",
-                                 font=ctk.CTkFont(size=11), text_color="#a1a1aa",
+                                 font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_muted"),
                                  justify="left", wraplength=840).pack(fill="x", padx=14, pady=(0, 4), anchor="w")
                 
                 mac_f = ctk.CTkFrame(inner, fg_color="transparent")
                 mac_f.pack(fill="x", padx=14, pady=(6, 2))
                 ctk.CTkLabel(mac_f, text=f"🔴  Suspected Rogue AP:",
-                             font=ctk.CTkFont(size=12, weight="bold"), text_color="#ef4444").pack(side="left")
+                             font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("danger")).pack(side="left")
                 ctk.CTkLabel(mac_f, text=f"  {alert.get('rogue_mac', '?')}",
-                             font=ctk.CTkFont(size=12, family="Courier"), text_color="#fca5a5").pack(side="left")
+                             font=ctk.CTkFont(size=12, family="Courier"), text_color=ThemeManager.get("danger")).pack(side="left")
                 
                 mac_f2 = ctk.CTkFrame(inner, fg_color="transparent")
                 mac_f2.pack(fill="x", padx=14, pady=(0, 2))
                 ctk.CTkLabel(mac_f2, text=f"✅  Likely Legitimate AP:",
-                             font=ctk.CTkFont(size=12, weight="bold"), text_color="#10b981").pack(side="left")
+                             font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("success")).pack(side="left")
                 ctk.CTkLabel(mac_f2, text=f"  {alert.get('legit_mac', '?')}",
-                             font=ctk.CTkFont(size=12, family="Courier"), text_color="#6ee7b7").pack(side="left")
+                             font=ctk.CTkFont(size=12, family="Courier"), text_color=ThemeManager.get("success")).pack(side="left")
                 
                 if alert.get("rogue_why"):
                     ctk.CTkLabel(inner, text=f"🔍  Why rogue: {alert['rogue_why']}",
-                                 font=ctk.CTkFont(size=12), text_color="#f97316",
+                                 font=ctk.CTkFont(size=12), text_color=ThemeManager.get("warning"),
                                  justify="left", wraplength=840).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
                 
                 if alert.get("details"):
                     ctk.CTkLabel(inner, text=f"📡  Signals: {alert['details']}",
-                                 font=ctk.CTkFont(size=11), text_color="#71717a",
+                                 font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_dim"),
                                  justify="left", wraplength=840).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
                 
                 # ── Action steps ─────────────────────────────────────────────
-                action_f = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
+                action_f = ctk.CTkFrame(inner, fg_color=ThemeManager.get("bg_elevated"), corner_radius=6)
                 action_f.pack(fill="x", padx=14, pady=(4, 4))
                 ctk.CTkLabel(action_f, text="💡 Recommended Actions:  1) Do NOT connect to this SSID until verified.  2) Check your router's MAC in its admin page.  3) Report to your IT admin if persistent.",
-                             font=ctk.CTkFont(size=11), text_color="#a1a1aa",
+                             font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_muted"),
                              justify="left", wraplength=840).pack(padx=10, pady=6, anchor="w")
                 
                 # ── Trust AP button ───────────────────────────────────────────
@@ -1052,36 +1126,36 @@ class App(ctk.CTk):
                 
                 ctk.CTkButton(btn_f, text="✅ Trust — Mark as False Positive (Mesh/Extender)",
                               font=ctk.CTkFont(size=12), height=32,
-                              fg_color="#166534", hover_color="#14532d",
+                              fg_color=ThemeManager.get("trust_btn_fg"), hover_color=ThemeManager.get("trust_btn_hover"),
                               command=make_trust_cmd(_ssid, _all)).pack(side="left")
             elif alert["type"].startswith("ARP"):
                 ip = alert.get("source_ip", "?")
                 ctk.CTkLabel(inner, text=f"🌐  Target IP:  {ip}",
                              font=ctk.CTkFont(size=13, weight="bold"),
-                             text_color="#d4d4d8").pack(fill="x", padx=14, pady=(4, 0), anchor="w")
+                             text_color=ThemeManager.get("text_body")).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
                 
                 mac_f = ctk.CTkFrame(inner, fg_color="transparent")
                 mac_f.pack(fill="x", padx=14, pady=(6, 2))
                 ctk.CTkLabel(mac_f, text=f"🔴  New MAC (Spoofer):",
-                             font=ctk.CTkFont(size=12, weight="bold"), text_color="#ef4444").pack(side="left")
+                             font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("danger")).pack(side="left")
                 ctk.CTkLabel(mac_f, text=f"  {alert.get('rogue_mac', '?')}",
-                             font=ctk.CTkFont(size=12, family="Courier"), text_color="#fca5a5").pack(side="left")
+                             font=ctk.CTkFont(size=12, family="Courier"), text_color=ThemeManager.get("danger")).pack(side="left")
                 
                 mac_f2 = ctk.CTkFrame(inner, fg_color="transparent")
                 mac_f2.pack(fill="x", padx=14, pady=(0, 2))
                 ctk.CTkLabel(mac_f2, text=f"✅  Old MAC (Legit):",
-                             font=ctk.CTkFont(size=12, weight="bold"), text_color="#10b981").pack(side="left")
+                             font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("success")).pack(side="left")
                 ctk.CTkLabel(mac_f2, text=f"  {alert.get('legit_mac', '?')}",
-                             font=ctk.CTkFont(size=12, family="Courier"), text_color="#6ee7b7").pack(side="left")
+                             font=ctk.CTkFont(size=12, family="Courier"), text_color=ThemeManager.get("success")).pack(side="left")
                 
                 ctk.CTkLabel(inner, text=f"📡  Details: {alert.get('details', '')}",
-                             font=ctk.CTkFont(size=11), text_color="#71717a",
+                             font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_dim"),
                              justify="left", wraplength=840).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
                              
-                action_f = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
+                action_f = ctk.CTkFrame(inner, fg_color=ThemeManager.get("bg_elevated"), corner_radius=6)
                 action_f.pack(fill="x", padx=14, pady=(4, 14))
                 ctk.CTkLabel(action_f, text="💡 Tech Actions:  1) Trace new MAC to switch port.  2) Flush ARP cache on affected clients.  3) Implement Dynamic ARP Inspection (DAI).",
-                             font=ctk.CTkFont(size=11), text_color="#a1a1aa",
+                             font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_muted"),
                              justify="left", wraplength=840).pack(padx=10, pady=6, anchor="w")
 
             elif alert["type"].startswith("Deauth"):
@@ -1090,24 +1164,24 @@ class App(ctk.CTk):
                 
                 ctk.CTkLabel(inner, text=f"🎯  Target MAC:  {target}",
                              font=ctk.CTkFont(size=13, weight="bold"),
-                             text_color="#d4d4d8").pack(fill="x", padx=14, pady=(4, 0), anchor="w")
+                             text_color=ThemeManager.get("text_body")).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
                 
                 ctk.CTkLabel(inner, text=f"📊  Frames Detected:  {count}",
-                             font=ctk.CTkFont(size=12), text_color="#f97316").pack(fill="x", padx=14, pady=(2, 2), anchor="w")
+                             font=ctk.CTkFont(size=12), text_color=ThemeManager.get("warning")).pack(fill="x", padx=14, pady=(2, 2), anchor="w")
                 
                 ctk.CTkLabel(inner, text=f"📡  Details: {alert.get('details', '')}",
-                             font=ctk.CTkFont(size=11), text_color="#71717a",
+                             font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_dim"),
                              justify="left", wraplength=840).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
                              
-                action_f = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
+                action_f = ctk.CTkFrame(inner, fg_color=ThemeManager.get("bg_elevated"), corner_radius=6)
                 action_f.pack(fill="x", padx=14, pady=(4, 14))
                 ctk.CTkLabel(action_f, text="💡 Tech Actions:  1) Check physical area for attackers (e.g. WiFi Pineapples).  2) Upgrade AP to WPA3 or enable 802.11w Protected Management Frames (PMF).",
-                             font=ctk.CTkFont(size=11), text_color="#a1a1aa",
+                             font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_muted"),
                              justify="left", wraplength=840).pack(padx=10, pady=6, anchor="w")
                              
             else:
                 ctk.CTkLabel(inner, text=alert.get("details", ""),
-                             font=ctk.CTkFont(size=13), text_color="#d4d4d8",
+                             font=ctk.CTkFont(size=13), text_color=ThemeManager.get("text_body"),
                              justify="left", wraplength=840).pack(fill="x", padx=14, pady=(4, 14), anchor="w")
 
 
