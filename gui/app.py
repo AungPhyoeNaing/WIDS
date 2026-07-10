@@ -9,6 +9,7 @@ import json
 import os
 import math
 from serial.tools import list_ports
+from gui.user_view import UserView
 
 class App(ctk.CTk):
     def __init__(self, start_serial_cb, stop_serial_cb):
@@ -56,6 +57,11 @@ class App(ctk.CTk):
         
         self.create_sidebar()
         self.create_main_content()
+
+        self.current_view = "technician"
+        self.user_view = UserView(self, self.show_technician_view, self)
+        self.user_view.grid(row=0, column=1, sticky="nsew")
+        self.user_view.grid_remove()
         
         self.after(self.update_interval, self.process_packet_queue)
         self.after(1000, self._try_auto_connect_serial)
@@ -98,7 +104,15 @@ class App(ctk.CTk):
             fg_color="#ef4444", hover_color="#dc2626", # Red 500
             command=self.show_alerts_window
         )
-        self.view_alerts_btn.grid(row=5, column=0, padx=20, pady=(10, 20), sticky="ew")
+        self.view_alerts_btn.grid(row=5, column=0, padx=20, pady=(10, 10), sticky="ew")
+
+        self.switch_view_btn = ctk.CTkButton(
+            self.sidebar_frame, text="\U0001F464  Switch to User View", height=40,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="#6c63ff", hover_color="#5a52d5",
+            command=self.toggle_view
+        )
+        self.switch_view_btn.grid(row=6, column=0, padx=20, pady=(0, 20), sticky="ew")
 
     def create_main_content(self):
         self.main_frame = ctk.CTkFrame(self, fg_color="#09090b", corner_radius=0) # Zinc 950
@@ -567,6 +581,23 @@ class App(ctk.CTk):
             self.connect_btn.configure(text="CONNECT", fg_color="#3b82f6", hover_color="#2563eb")
             self.status_label.configure(text="● Disconnected", text_color="#ef4444")
 
+    def toggle_view(self):
+        if self.current_view == "technician":
+            self.current_view = "user"
+            self.main_frame.grid_remove()
+            self.view_alerts_btn.grid_remove()
+            self.user_view.grid(row=0, column=1, sticky="nsew")
+            self.switch_view_btn.configure(text="\U0001F6E1  Switch to Technician View")
+        else:
+            self.show_technician_view()
+
+    def show_technician_view(self):
+        self.current_view = "technician"
+        self.user_view.grid_remove()
+        self.view_alerts_btn.grid(row=5, column=0, padx=20, pady=(10, 10), sticky="ew")
+        self.main_frame.grid(row=0, column=1, sticky="nsew")
+        self.switch_view_btn.configure(text="\U0001F464  Switch to User View")
+
     def toggle_pause(self):
         self.is_paused = not self.is_paused
         if self.is_paused:
@@ -580,6 +611,7 @@ class App(ctk.CTk):
 
     def add_packet(self, packet):
         self.packet_queue.put(packet)
+        self.user_view.add_packet(packet)
 
     def process_packet_queue(self):
         packets_to_insert = []
