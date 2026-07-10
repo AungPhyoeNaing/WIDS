@@ -9,13 +9,14 @@ import json
 import os
 import math
 from serial.tools import list_ports
+from PIL import Image
 from gui.user_view import UserView
 
 class App(ctk.CTk):
     def __init__(self, start_serial_cb, stop_serial_cb):
         super().__init__()
         
-        self.title("Sentinel WIDS - Dashboard")
+        self.title("WIDS - Dashboard")
         self.geometry("1100x700")
         
         # Premium dark mode theme
@@ -71,7 +72,12 @@ class App(ctk.CTk):
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
         self.sidebar_frame.grid_rowconfigure(6, weight=1)
         
-        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="🛡️ Sentinel WIDS", font=ctk.CTkFont(size=22, weight="bold"))
+        logo_path = os.path.join(os.path.dirname(__file__), "wids_logo.jpg")
+        try:
+            logo_img = ctk.CTkImage(light_image=Image.open(logo_path), dark_image=Image.open(logo_path), size=(40, 40))
+            self.logo_label = ctk.CTkLabel(self.sidebar_frame, text=" WIDS", image=logo_img, compound="left", font=ctk.CTkFont(family="Consolas", size=26, weight="bold"))
+        except Exception:
+            self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="WIDS", font=ctk.CTkFont(family="Consolas", size=26, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(30, 20))
         
         self.com_port_entry = ctk.CTkEntry(self.sidebar_frame, placeholder_text="COM Port (e.g. COM5)", height=45, font=ctk.CTkFont(size=14))
@@ -312,9 +318,29 @@ class App(ctk.CTk):
         if not known_bssids:
             return 0, []
 
+        # ── Enterprise SSID Detection ────────────────────────────────────────
+        is_enterprise = len(known_bssids) >= 3
+        if is_enterprise:
+            score -= 25
+            reasons.append("Enterprise/Campus SSID (-25 score)")
+
+        # ── Same-Vendor Detection ────────────────────────────────────────────
+        my_vendor = bssid.lower()[:8]
+        known_vendors = {b.lower()[:8] for b in known_bssids}
+        is_same_vendor = my_vendor in known_vendors
+        all_same_vendor = (len(known_vendors) == 1) and (my_vendor in known_vendors)
+
+        if all_same_vendor and len(known_bssids) >= 1:
+            score -= 10
+            reasons.append("All APs share the same vendor prefix (-10 score)")
+
         # ── Signal 1: BSSID conflict (always present at this point) ──────────
-        score += 50
-        reasons.append(f"SSID '{ssid}' broadcasted by multiple MACs")
+        if is_same_vendor:
+            score += 20
+            reasons.append(f"SSID '{ssid}' broadcasted by multiple MACs (same vendor, reduced penalty)")
+        else:
+            score += 50
+            reasons.append(f"SSID '{ssid}' broadcasted by multiple MACs")
 
         # ── Signal 2: Channel mismatch ───────────────────────────────────────
         other_channels = {self.bssid_channel[b] for b in known_bssids if b in self.bssid_channel}
@@ -348,6 +374,11 @@ class App(ctk.CTk):
         elif oui_class == "unknown" and "router" in known_oui_classes:
             score += 5
             reasons.append("MAC OUI is unrecognized (possibly randomized or custom firmware)")
+
+        # ── Signal 5: Locally Administered Address ───────────────────────────
+        if self._is_locally_administered(bssid):
+            score += 30
+            reasons.append("MAC is Locally Administered (highly indicative of a randomized MAC/mobile hotspot)")
 
         return min(score, 100), reasons
 
@@ -457,8 +488,11 @@ class App(ctk.CTk):
         neither_is_laa = all(
             not self._is_locally_administered(b) for b in all_bssids
         )
+        all_same_vendor = len({b.lower()[:8] for b in all_bssids}) == 1
+        is_enterprise = len(all_bssids) >= 4
+        
         score_diff = top_score - bottom_score
-        is_likely_mesh = both_router_oui and neither_is_laa and score_diff < 20
+        is_likely_mesh = neither_is_laa and (all_same_vendor or is_enterprise or (both_router_oui and score_diff < 20))
 
         return suspected_rogue, suspected_legit, rogue_reasons, is_likely_mesh
 
@@ -512,6 +546,8 @@ class App(ctk.CTk):
             self._add_alert({
                 "type": "Deauth Activity",
                 "severity": "Medium",
+                "target_mac": target_mac,
+                "deauth_count": 1,
                 "details": f"Observed a deauthentication frame targeting {target_mac}."
             })
         elif self.deauth_count % 10 == 0:
@@ -519,6 +555,8 @@ class App(ctk.CTk):
             self._add_alert({
                 "type": "Deauth Flood",
                 "severity": "High",
+                "target_mac": target_mac,
+                "deauth_count": self.deauth_count,
                 "details": f"Detected {self.deauth_count} deauthentication frames targeting {target_mac} in the current session."
             })
 
@@ -666,9 +704,9 @@ class App(ctk.CTk):
                     if bssid in trusted:
                         pass  # Trusted — skip Evil Twin analysis
                     
-                    # ── Gate 2: Minimum sightings (3 packets) before flagging ───
+                    # ── Gate 2: Minimum sightings before flagging ───
                     elif len(self.ssid_to_bssid[ssid]) > 1 and \
-                         self.bssid_seen_count.get(bssid, 0) >= 3:
+                         self.bssid_seen_count.get(bssid, 0) >= (10 if len(self.ssid_to_bssid[ssid]) >= 4 else 3):
                         
                         score, reasons = self._score_evil_twin(ssid, bssid, channel, rssi)
                         
@@ -707,7 +745,9 @@ class App(ctk.CTk):
                             
                             current_time = time.time()
                             last_alert = self.last_eviltwin_alert_time.get(bssid, 0)
-                            if current_time - last_alert >= 10:
+                            if is_likely_mesh:
+                                pass # Suppress LOW-confidence mesh from creating alert cards
+                            elif current_time - last_alert >= 10:
                                 reason_str = " | ".join(reasons)
                                 rogue_reason_str = "; ".join(rogue_reasons) if rogue_reasons else "No strong indicators — treat as suspicious"
                                 alert_key = (ssid, rogue_mac)
@@ -958,6 +998,13 @@ class App(ctk.CTk):
                              font=ctk.CTkFont(size=13, weight="bold"),
                              text_color="#d4d4d8").pack(fill="x", padx=14, pady=(4, 0), anchor="w")
                 
+                all_bssids = alert.get("all_bssids", [])
+                if all_bssids:
+                    bssids_str = ", ".join(all_bssids)
+                    ctk.CTkLabel(inner, text=f"📍 All Known BSSIDs for SSID: {bssids_str}",
+                                 font=ctk.CTkFont(size=11), text_color="#a1a1aa",
+                                 justify="left", wraplength=840).pack(fill="x", padx=14, pady=(0, 4), anchor="w")
+                
                 mac_f = ctk.CTkFrame(inner, fg_color="transparent")
                 mac_f.pack(fill="x", padx=14, pady=(6, 2))
                 ctk.CTkLabel(mac_f, text=f"🔴  Suspected Rogue AP:",
@@ -1007,8 +1054,58 @@ class App(ctk.CTk):
                               font=ctk.CTkFont(size=12), height=32,
                               fg_color="#166534", hover_color="#14532d",
                               command=make_trust_cmd(_ssid, _all)).pack(side="left")
+            elif alert["type"].startswith("ARP"):
+                ip = alert.get("source_ip", "?")
+                ctk.CTkLabel(inner, text=f"🌐  Target IP:  {ip}",
+                             font=ctk.CTkFont(size=13, weight="bold"),
+                             text_color="#d4d4d8").pack(fill="x", padx=14, pady=(4, 0), anchor="w")
+                
+                mac_f = ctk.CTkFrame(inner, fg_color="transparent")
+                mac_f.pack(fill="x", padx=14, pady=(6, 2))
+                ctk.CTkLabel(mac_f, text=f"🔴  New MAC (Spoofer):",
+                             font=ctk.CTkFont(size=12, weight="bold"), text_color="#ef4444").pack(side="left")
+                ctk.CTkLabel(mac_f, text=f"  {alert.get('rogue_mac', '?')}",
+                             font=ctk.CTkFont(size=12, family="Courier"), text_color="#fca5a5").pack(side="left")
+                
+                mac_f2 = ctk.CTkFrame(inner, fg_color="transparent")
+                mac_f2.pack(fill="x", padx=14, pady=(0, 2))
+                ctk.CTkLabel(mac_f2, text=f"✅  Old MAC (Legit):",
+                             font=ctk.CTkFont(size=12, weight="bold"), text_color="#10b981").pack(side="left")
+                ctk.CTkLabel(mac_f2, text=f"  {alert.get('legit_mac', '?')}",
+                             font=ctk.CTkFont(size=12, family="Courier"), text_color="#6ee7b7").pack(side="left")
+                
+                ctk.CTkLabel(inner, text=f"📡  Details: {alert.get('details', '')}",
+                             font=ctk.CTkFont(size=11), text_color="#71717a",
+                             justify="left", wraplength=840).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
+                             
+                action_f = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
+                action_f.pack(fill="x", padx=14, pady=(4, 14))
+                ctk.CTkLabel(action_f, text="💡 Tech Actions:  1) Trace new MAC to switch port.  2) Flush ARP cache on affected clients.  3) Implement Dynamic ARP Inspection (DAI).",
+                             font=ctk.CTkFont(size=11), text_color="#a1a1aa",
+                             justify="left", wraplength=840).pack(padx=10, pady=6, anchor="w")
+
+            elif alert["type"].startswith("Deauth"):
+                target = alert.get("target_mac", "Unknown")
+                count = alert.get("deauth_count", 1)
+                
+                ctk.CTkLabel(inner, text=f"🎯  Target MAC:  {target}",
+                             font=ctk.CTkFont(size=13, weight="bold"),
+                             text_color="#d4d4d8").pack(fill="x", padx=14, pady=(4, 0), anchor="w")
+                
+                ctk.CTkLabel(inner, text=f"📊  Frames Detected:  {count}",
+                             font=ctk.CTkFont(size=12), text_color="#f97316").pack(fill="x", padx=14, pady=(2, 2), anchor="w")
+                
+                ctk.CTkLabel(inner, text=f"📡  Details: {alert.get('details', '')}",
+                             font=ctk.CTkFont(size=11), text_color="#71717a",
+                             justify="left", wraplength=840).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
+                             
+                action_f = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
+                action_f.pack(fill="x", padx=14, pady=(4, 14))
+                ctk.CTkLabel(action_f, text="💡 Tech Actions:  1) Check physical area for attackers (e.g. WiFi Pineapples).  2) Upgrade AP to WPA3 or enable 802.11w Protected Management Frames (PMF).",
+                             font=ctk.CTkFont(size=11), text_color="#a1a1aa",
+                             justify="left", wraplength=840).pack(padx=10, pady=6, anchor="w")
+                             
             else:
-                # Non-Evil-Twin alert
                 ctk.CTkLabel(inner, text=alert.get("details", ""),
                              font=ctk.CTkFont(size=13), text_color="#d4d4d8",
                              justify="left", wraplength=840).pack(fill="x", padx=14, pady=(4, 14), anchor="w")

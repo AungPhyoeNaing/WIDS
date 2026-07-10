@@ -5,6 +5,7 @@
 
 // Configuration
 const int CHANNEL_HOP_INTERVAL = 200; // ms
+const int MIN_RSSI_THRESHOLD = -80; // Filter out packets weaker than -80 dBm (reduces sniffing area to ~medium room)
 unsigned long lastHopTime = 0;
 int currentChannel = 1;
 
@@ -39,6 +40,9 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     
     // Safety check: ensure it's a management frame (Type 0)
     if (frameType != 0) return; 
+    
+    // Range Limiter: Drop packets that are too weak (outside our intended sniffing zone)
+    if (pkt->rx_ctrl.rssi < MIN_RSSI_THRESHOLD) return;
 
     SniffPacket p;
     p.timestamp = millis();

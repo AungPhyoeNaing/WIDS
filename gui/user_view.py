@@ -166,8 +166,24 @@ class UserView(ctk.CTkFrame):
         # ── Header row: TYPE + seen count + times
         hdr = ctk.CTkFrame(inner, fg_color="transparent")
         hdr.pack(fill="x", padx=14, pady=(12, 2))
+        
+        display_type = alert["type"].upper()
+        
+        if "EVIL TWIN" in display_type:
+            severity = alert.get("severity", "Low").upper()
+            if severity == "LOW":
+                display_type = display_type.replace("EVIL TWIN", "UNUSUAL WI-FI ACTIVITY")
+            elif severity == "HIGH":
+                display_type = display_type.replace("EVIL TWIN", "SUSPICIOUS WI-FI DEVICE")
+            else: # Critical
+                display_type = display_type.replace("EVIL TWIN", "FAKE NETWORK")
+        else:
+            display_type = display_type.replace("DEAUTH ACTIVITY", "DISCONNECTION ATTEMPT")
+            display_type = display_type.replace("DEAUTH FLOOD", "SEVERE DISCONNECTION ATTACK")
+            display_type = display_type.replace("ARP SPOOFING", "NETWORK SNOOPING")
+
         ctk.CTkLabel(
-            hdr, text=alert["type"].upper(),
+            hdr, text=display_type,
             font=ctk.CTkFont(size=15, weight="bold"),
             text_color=stripe
         ).pack(side="left")
@@ -198,14 +214,14 @@ class UserView(ctk.CTkFrame):
             if is_mesh:
                 ctk.CTkLabel(
                     inner,
-                    text="ℹ️  Both APs use router-vendor MACs — likely a mesh network or extender. Verify manually.",
+                    text="ℹ️  Both devices look like normal routers. This is likely a safe Wi-Fi extender or mesh network, but please double-check.",
                     font=ctk.CTkFont(size=14), text_color="#60a5fa",
                     justify="left", wraplength=840
                 ).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
 
             ssid = alert.get('ssid', 'Unknown')
             ctk.CTkLabel(
-                inner, text=f"🌐  SSID:  {ssid}",
+                inner, text=f"🌐  Network Name:  {ssid}",
                 font=ctk.CTkFont(size=15, weight="bold"),
                 text_color="#e4e4e7"
             ).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
@@ -213,39 +229,35 @@ class UserView(ctk.CTkFrame):
             # Rogue MAC
             mf = ctk.CTkFrame(inner, fg_color="transparent")
             mf.pack(fill="x", padx=14, pady=(6, 2))
-            ctk.CTkLabel(mf, text="🔴  Suspected Rogue AP:",
+            ctk.CTkLabel(mf, text="🔴  Suspicious Device (Attacker):",
                          font=ctk.CTkFont(size=14, weight="bold"), text_color="#f87171").pack(side="left")
-            ctk.CTkLabel(mf, text=f"  {alert.get('rogue_mac', '?')}",
+            ctk.CTkLabel(mf, text=f"  Device ID: {alert.get('rogue_mac', '?')}",
                          font=ctk.CTkFont(size=14, family="Courier"), text_color="#fca5a5").pack(side="left")
 
             # Legit MAC
             mf2 = ctk.CTkFrame(inner, fg_color="transparent")
             mf2.pack(fill="x", padx=14, pady=(0, 2))
-            ctk.CTkLabel(mf2, text="✅  Likely Legitimate AP:",
+            ctk.CTkLabel(mf2, text="✅  Your Real Router:",
                          font=ctk.CTkFont(size=14, weight="bold"), text_color="#34d399").pack(side="left")
-            ctk.CTkLabel(mf2, text=f"  {alert.get('legit_mac', '?')}",
+            ctk.CTkLabel(mf2, text=f"  Device ID: {alert.get('legit_mac', '?')}",
                          font=ctk.CTkFont(size=14, family="Courier"), text_color="#6ee7b7").pack(side="left")
 
-            if alert.get("rogue_why"):
-                ctk.CTkLabel(
-                    inner, text=f"🔍  Why rogue: {alert['rogue_why']}",
-                    font=ctk.CTkFont(size=14), text_color="#fb923c",
-                    justify="left", wraplength=840
-                ).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
-
-            if alert.get("details"):
-                ctk.CTkLabel(
-                    inner, text=f"📡  Signals: {alert['details']}",
-                    font=ctk.CTkFont(size=13), text_color="#a1a1aa",
-                    justify="left", wraplength=840
-                ).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
+            # Technical details are hidden in User View
 
             # Action box
+            severity = alert.get("severity", "Low").upper()
+            if severity == "LOW":
+                rec_text = "💡 Recommended: This is likely a safe Wi-Fi extender or mesh node. You can safely click the green button below to ignore this."
+            elif severity == "HIGH":
+                rec_text = "💡 Recommended: A device is acting suspiciously like your router. Check if you recently added any new Wi-Fi extenders. If not, be cautious."
+            else:
+                rec_text = "💡 Recommended: 1) Do NOT connect to this Wi-Fi network right now. 2) Check the sticker on the back of your router to verify its Device ID."
+
             act = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
             act.pack(fill="x", padx=14, pady=(4, 4))
             ctk.CTkLabel(
                 act,
-                text="💡 Recommended:  1) Do NOT connect to this SSID until verified.  2) Check your router's MAC in its admin page.  3) Report to IT admin if persistent.",
+                text=rec_text,
                 font=ctk.CTkFont(size=13), text_color="#d4d4d8",
                 justify="left", wraplength=840
             ).pack(padx=10, pady=6, anchor="w")
@@ -264,18 +276,50 @@ class UserView(ctk.CTkFrame):
                 return _cmd
 
             ctk.CTkButton(
-                btn_f, text="✅ Trust — Mark as False Positive (Mesh/Extender)",
+                btn_f, text="✅ This is safe (e.g. my Wi-Fi Extender)",
                 font=ctk.CTkFont(size=14), height=36,
                 fg_color="#166534", hover_color="#14532d",
                 command=make_trust_cmd(_ssid, _all)
             ).pack(side="left")
         else:
             # Non-Evil-Twin (deauth flood, etc.)
-            ctk.CTkLabel(
-                inner, text=alert.get("details", ""),
-                font=ctk.CTkFont(size=15), text_color="#e4e4e7",
-                justify="left", wraplength=840
-            ).pack(fill="x", padx=14, pady=(4, 14), anchor="w")
+            raw_details = alert.get("details", "")
+            explanation = ""
+            action = ""
+
+            alert_type = alert.get("type", "").upper()
+            if "DEAUTH ACTIVITY" in alert_type:
+                explanation = "A device on your network is being repeatedly disconnected. This could be a glitch, or an attacker trying to force it off the Wi-Fi."
+                action = "💡 Recommended: Monitor the device. If it keeps losing connection, restart your router."
+            elif "DEAUTH FLOOD" in alert_type:
+                explanation = "A severe disconnection attack is happening! An attacker is actively jamming a device on your network, forcing it offline."
+                action = "💡 Recommended: The targeted device may not be able to use Wi-Fi right now. This attack usually stops when the attacker leaves the area."
+            elif "ARP" in alert_type:
+                explanation = "Another device on your network is trying to secretly intercept or spy on your internet traffic."
+                action = "💡 Recommended: Check for unknown devices connected to your Wi-Fi. If you don't recognize them, change your Wi-Fi password."
+            
+            # What this means
+            if explanation:
+                ctk.CTkLabel(
+                    inner, text=f"🔍 What this means: {explanation}",
+                    font=ctk.CTkFont(size=14, weight="bold"), text_color="#fb923c",
+                    justify="left", wraplength=840
+                ).pack(fill="x", padx=14, pady=(4, 4), anchor="w")
+
+            # Technical details are hidden in User View
+
+            # Recommended action
+            if action:
+                act = ctk.CTkFrame(inner, fg_color="#27272a", corner_radius=6)
+                act.pack(fill="x", padx=14, pady=(4, 14))
+                ctk.CTkLabel(
+                    act, text=action,
+                    font=ctk.CTkFont(size=13), text_color="#d4d4d8",
+                    justify="left", wraplength=840
+                ).pack(padx=10, pady=6, anchor="w")
+            else:
+                # Add padding if no action box
+                ctk.CTkFrame(inner, fg_color="transparent", height=10).pack(fill="x")
 
         return wrapper
 
