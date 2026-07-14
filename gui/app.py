@@ -554,8 +554,39 @@ class App(ctk.CTk):
 
     # ────────────────────────────────────────────────────────────────────────
 
+    def _play_alert_sound(self, message="Alert Detected"):
+        try:
+            import ctypes, os
+            
+            # Map the message to the corresponding pre-recorded Jarvis mp3 file
+            audio_file = None
+            if "Evil Twin" in message:
+                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-32-Warning-!!-Evil-twin-wifi-detected!!.mp3"
+            elif "ARP Spoofing" in message:
+                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-34-Warning-!!-MAC-Spoofing-detected-,-Sir!!!.mp3"
+            elif "Deauth" in message:
+                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-35-Warning-!!-Deauth-Attack-Frames-has-been-found-,.mp3"
+            elif "Greeting" in message:
+                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-40-Hello-,-Sir-,-Our-Intrusion-Detection-System-is.mp3"
+            
+            if audio_file and os.path.exists(audio_file):
+                path = os.path.abspath(audio_file)
+                alias = "jarvis_voice"
+                
+                # Stop and close the alias to cancel any currently playing sound
+                ctypes.windll.winmm.mciSendStringW(f'stop {alias}', None, 0, None)
+                ctypes.windll.winmm.mciSendStringW(f'close {alias}', None, 0, None)
+                
+                # Open the new sound and play asynchronously (without 'wait')
+                ctypes.windll.winmm.mciSendStringW(f'open "{path}" alias {alias}', None, 0, None)
+                ctypes.windll.winmm.mciSendStringW(f'play {alias}', None, 0, None)
+        except Exception:
+            pass
+
     def _add_alert(self, alert):
         self.alert_count += 1
+        alert_type_msg = alert.get("type", "Alert").split("[")[0].strip()
+        self._play_alert_sound(f"{alert_type_msg} Detected")
         alert.setdefault("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         alert.setdefault("last_seen", alert["time"])
         self.alerts_list.append(alert)
@@ -617,6 +648,7 @@ class App(ctk.CTk):
                 self.is_connected = True
                 self.connect_btn.configure(text="DISCONNECT", fg_color="#ef4444", hover_color="#dc2626")
                 self.status_label.configure(text=f"● Connected to {port}", text_color="#10b981")
+                self._play_alert_sound("Greeting")
                 return
 
         self.status_label.configure(text="● Auto-connect failed", text_color="#ef4444")
@@ -636,6 +668,7 @@ class App(ctk.CTk):
                     self.is_connected = True
                     self.connect_btn.configure(text="DISCONNECT", fg_color="#ef4444", hover_color="#dc2626")
                     self.status_label.configure(text=f"● Connected to {port}", text_color="#10b981")
+                    self._play_alert_sound("Greeting")
                 else:
                     self.status_label.configure(text="● Connection Failed", text_color="#ef4444")
             else:
@@ -838,6 +871,7 @@ class App(ctk.CTk):
                                         self.alerts_list[idx]["severity"] = severity
                                 else:
                                     self.alert_count += 1
+                                    self._play_alert_sound("Evil Twin Wifi Detected")
                                     new_alert = {
                                         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                         "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -873,6 +907,7 @@ class App(ctk.CTk):
                     last_arp = self.arp_alerts_sent.get(alert_key, 0)
                     if now - last_arp >= 10:
                         self.alert_count += 1
+                        self._play_alert_sound("ARP Spoofing Detected")
                         details = f"IP {ip} changed from {old_mac} to {new_mac}"
                         self.alerts_list.append({
                             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
