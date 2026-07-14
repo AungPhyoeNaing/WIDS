@@ -312,6 +312,22 @@ class UserView(ctk.CTkFrame):
             else:
                 # Add padding if no action box
                 ctk.CTkFrame(inner, fg_color="transparent", height=10).pack(fill="x")
+                
+        # ── Acknowledgement Checkbox ─────────────────────────────────────
+        ack_f = ctk.CTkFrame(inner, fg_color="transparent")
+        ack_f.pack(fill="x", padx=14, pady=(4, 12))
+        
+        ack_var = ctk.StringVar(value="on" if alert.get("acknowledged", False) else "off")
+        
+        def make_ack_cmd(a=alert, v=ack_var):
+            def _cmd():
+                a["acknowledged"] = (v.get() == "on")
+            return _cmd
+            
+        ctk.CTkCheckBox(
+            ack_f, text="Acknowledge Alert (Silence Reminder)", variable=ack_var,
+            onvalue="on", offvalue="off", command=make_ack_cmd()
+        ).pack(side="left")
 
         return wrapper
 

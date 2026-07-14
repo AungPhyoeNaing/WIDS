@@ -69,6 +69,7 @@ class App(ctk.CTk):
         
         self.after(self.update_interval, self.process_packet_queue)
         self.after(1000, self._try_auto_connect_serial)
+        self.after(30000, self._check_unacknowledged_alerts)
         
     def create_sidebar(self):
         self.sidebar_frame = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color=ThemeManager.get("bg_sidebar"))
@@ -554,6 +555,12 @@ class App(ctk.CTk):
 
     # ────────────────────────────────────────────────────────────────────────
 
+    def _check_unacknowledged_alerts(self):
+        unacknowledged = any(not a.get("acknowledged", False) for a in self.alerts_list)
+        if unacknowledged:
+            self._play_alert_sound("Unacknowledged")
+        self.after(30000, self._check_unacknowledged_alerts)
+
     def _play_alert_sound(self, message="Alert Detected"):
         try:
             import ctypes, os
@@ -568,6 +575,8 @@ class App(ctk.CTk):
                 audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-35-Warning-!!-Deauth-Attack-Frames-has-been-found-,.mp3"
             elif "Greeting" in message:
                 audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-40-Hello-,-Sir-,-Our-Intrusion-Detection-System-is.mp3"
+            elif "Unacknowledged" in message:
+                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-56-Sir-!!-please-check-the-alerts-history-carefully.mp3"
             
             if audio_file and os.path.exists(audio_file):
                 path = os.path.abspath(audio_file)
@@ -1218,5 +1227,21 @@ class App(ctk.CTk):
                 ctk.CTkLabel(inner, text=alert.get("details", ""),
                              font=ctk.CTkFont(size=13), text_color=ThemeManager.get("text_body"),
                              justify="left", wraplength=840).pack(fill="x", padx=14, pady=(4, 14), anchor="w")
+
+            # ── Acknowledgement Checkbox ─────────────────────────────────────
+            ack_f = ctk.CTkFrame(inner, fg_color="transparent")
+            ack_f.pack(fill="x", padx=14, pady=(4, 12))
+            
+            ack_var = ctk.StringVar(value="on" if alert.get("acknowledged", False) else "off")
+            
+            def make_ack_cmd(a=alert, v=ack_var):
+                def _cmd():
+                    a["acknowledged"] = (v.get() == "on")
+                return _cmd
+                
+            ctk.CTkCheckBox(
+                ack_f, text="Acknowledge Alert (Silence Reminder)", variable=ack_var,
+                onvalue="on", offvalue="off", command=make_ack_cmd()
+            ).pack(side="left")
 
 
