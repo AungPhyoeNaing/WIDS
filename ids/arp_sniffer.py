@@ -45,7 +45,7 @@ class ARPSniffer:
             ip = packet[ARP].psrc
             mac = packet[ARP].hwsrc
 
-            if ip == "0.0.0.0":
+            if ip == "0.0.0.0" or mac == "00:00:00:00:00:00" or mac == "ff:ff:ff:ff:ff:ff":
                 return
 
             # Periodically expire stale entries
