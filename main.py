@@ -20,12 +20,15 @@ class Controller:
         # Pass gateway_resolver to ARP sniffer for gateway-aware detection
         self.serial_reader = SerialReader(self.on_packet_received)
         self.arp_sniffer = ARPSniffer(self.on_packet_received, self.gateway_resolver)
+        
+        # Initialize app BEFORE starting the sniffers to avoid AttributeError
+        # if a packet is received immediately
+        self.app = App(self.start_serial, self.stop_serial)
+
         self.arp_sniffer.start()
 
         # Start subnet scan in background (duplicate MAC detection)
         self.gateway_resolver.scan_subnet_async()
-
-        self.app = App(self.start_serial, self.stop_serial)
 
         # Log gateway info at startup
         gw_info = self.gateway_resolver.get_gateway_info()
