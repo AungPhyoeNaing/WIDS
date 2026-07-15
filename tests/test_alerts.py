@@ -8,6 +8,8 @@ class DummyApp:
         self.alerts_list = []
         self.deauth_count = 0
         self.last_deauth_alert_time = 0.0
+        self.deauth_history = {}
+        self.deauth_alert_cooldown = {}
 
     def _add_alert(self, alert):
         self.alert_count += 1
@@ -35,7 +37,13 @@ class DeauthAlertTests(unittest.TestCase):
 
     def test_tenth_deauth_escalates_to_flood_alert(self):
         app = self._make_app(deauth_count=9)
-        packet = {"subtype": "Deauthentication", "mac_dst": "AA:BB:CC:DD:EE:FF"}
+        import time
+        from collections import deque
+        mac = "AA:BB:CC:DD:EE:FF"
+        now = time.time()
+        # Pre-populate 9 deauths within the last 5 seconds
+        app.deauth_history[mac] = deque([now - 1] * 9, maxlen=50)
+        packet = {"subtype": "Deauthentication", "mac_dst": mac}
         App._handle_deauth_packet(app, packet)
 
         self.assertEqual(app.alert_count, 1)

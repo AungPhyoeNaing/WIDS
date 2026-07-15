@@ -24,14 +24,19 @@ class ARPSniffer:
               stop_filter=lambda _: not self.running)
 
     def _handle_packet(self, packet):
-        if packet.haslayer(ARP) and packet[ARP].op == 2:
+        if packet.haslayer(ARP) and packet[ARP].op in (1, 2):
             ip = packet[ARP].psrc
             mac = packet[ARP].hwsrc
+            
+            if ip == "0.0.0.0":
+                return
+                
             old_mac = self.arp_table.get(ip)
             spoofed = False
             if old_mac and old_mac != mac:
                 spoofed = True
-            self.arp_table[ip] = mac
+            else:
+                self.arp_table[ip] = mac
 
             if spoofed:
                 self.callback({

@@ -8,6 +8,7 @@ import collections
 import json
 import os
 import math
+import subprocess
 from serial.tools import list_ports
 from PIL import Image, ImageDraw
 from gui.user_view import UserView
@@ -35,6 +36,7 @@ class App(ctk.CTk):
         self.total_packets = 0
         self.deauth_count = 0
         self.alert_count = 0
+        self.target_ssid = self._detect_current_ssid()
         
         self.network_map = {} # BSSID -> SSID
         self.ssid_to_bssid = {} # SSID -> set(BSSID)
@@ -46,8 +48,12 @@ class App(ctk.CTk):
         self.ssid_suspected_legit = {} # SSID -> suspected legitimate BSSID
         self.alerts_list = [] # Store triggered alerts
         self.last_eviltwin_alert_time = {} # BSSID -> timestamp
+        self.last_eviltwin_audio_time = {} # (ssid, rogue_mac) -> timestamp
         self.eviltwin_alert_index = {} # (ssid, rogue_mac) -> index in alerts_list
-        self.last_deauth_alert_time = 0.0
+        self.bssid_last_seen = {} # BSSID -> timestamp of last packet
+        self.last_bssid_cleanup_time = 0 # timestamp of last cleanup
+        self.deauth_history = {} # target_mac -> deque of timestamps
+        self.deauth_alert_cooldown = {} # target_mac -> timestamp of last alert
         
         # ARP tracking
         self.arp_alerts_sent = {} # (ip, mac) -> timestamp, rate-limit ARP alerts
@@ -71,6 +77,23 @@ class App(ctk.CTk):
         self.after(1000, self._try_auto_connect_serial)
         self.after(30000, self._check_unacknowledged_alerts)
         
+    def _detect_current_ssid(self):
+        try:
+            if os.name == 'nt':
+                # Use creationflags=0x08000000 (CREATE_NO_WINDOW) to prevent flashing console on Windows
+                output = subprocess.check_output(['netsh', 'wlan', 'show', 'interfaces'], 
+                                                 creationflags=0x08000000).decode('utf-8', errors='ignore')
+                for line in output.split('\n'):
+                    if "SSID" in line and "BSSID" not in line:
+                        parts = line.split(":", 1)
+                        if len(parts) > 1:
+                            ssid = parts[1].strip()
+                            if ssid:
+                                return ssid
+        except Exception as e:
+            print(f"Failed to detect SSID: {e}")
+        return None
+
     def create_sidebar(self):
         self.sidebar_frame = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color=ThemeManager.get("bg_sidebar"))
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
@@ -89,6 +112,10 @@ class App(ctk.CTk):
         except Exception:
             self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="WIDS", font=ctk.CTkFont(family="Consolas", size=26, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(30, 20))
+        
+        target_text = f"🛡️ Target: {self.target_ssid}" if self.target_ssid else "🛡️ Target: All Networks"
+        self.target_label = ctk.CTkLabel(self.sidebar_frame, text=target_text, font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("accent"))
+        # self.target_label.grid(row=0, column=0, padx=20, pady=(90, 0), sticky="n") # Hidden for now
         
         self.com_port_entry = ctk.CTkEntry(self.sidebar_frame, placeholder_text="COM Port (e.g. COM5)", height=45, font=ctk.CTkFont(size=14))
         self.com_port_entry.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
@@ -342,7 +369,9 @@ class App(ctk.CTk):
         reasons = []
         score = 0
 
-        known_bssids = self.ssid_to_bssid.get(ssid, set()) - {bssid}
+        current_time = time.time()
+        bssid_last_seen = getattr(self, 'bssid_last_seen', {})
+        known_bssids = {b for b in self.ssid_to_bssid.get(ssid, set()) if current_time - bssid_last_seen.get(b, 0) < 15} - {bssid}
         if not known_bssids:
             return 0, []
 
@@ -604,28 +633,45 @@ class App(ctk.CTk):
         return alert
 
     def _handle_deauth_packet(self, packet):
-        self.deauth_count += 1
+        self.deauth_count += 1 # Keep global count for dashboard stats
         target_mac = packet.get("mac_dst", "Unknown")
         now = time.time()
 
-        if self.deauth_count == 1 and (now - self.last_deauth_alert_time) >= 15:
-            self.last_deauth_alert_time = now
-            self._add_alert({
-                "type": "Deauth Activity",
-                "severity": "Medium",
-                "target_mac": target_mac,
-                "deauth_count": 1,
-                "details": f"Observed a deauthentication frame targeting {target_mac}."
-            })
-        elif self.deauth_count % 10 == 0:
-            self.last_deauth_alert_time = now
-            self._add_alert({
-                "type": "Deauth Flood",
-                "severity": "High",
-                "target_mac": target_mac,
-                "deauth_count": self.deauth_count,
-                "details": f"Detected {self.deauth_count} deauthentication frames targeting {target_mac} in the current session."
-            })
+        # Initialize tracking for this MAC
+        if target_mac not in self.deauth_history:
+            self.deauth_history[target_mac] = collections.deque(maxlen=50)
+            
+        self.deauth_history[target_mac].append(now)
+        
+        # Prune old timestamps (older than 5 seconds)
+        while self.deauth_history[target_mac] and (now - self.deauth_history[target_mac][0]) > 5.0:
+            self.deauth_history[target_mac].popleft()
+            
+        recent_count = len(self.deauth_history[target_mac])
+        last_alert = self.deauth_alert_cooldown.get(target_mac, 0)
+        
+        # Trigger Flood Alert
+        if recent_count >= 10:
+            if (now - last_alert) >= 15: # Cooldown
+                self.deauth_alert_cooldown[target_mac] = now
+                self._add_alert({
+                    "type": "Deauth Flood",
+                    "severity": "High",
+                    "target_mac": target_mac,
+                    "deauth_count": recent_count,
+                    "details": f"Detected a flood of {recent_count} deauthentication frames targeting {target_mac} within 5 seconds."
+                })
+        # Trigger Activity Alert for isolated packets
+        elif recent_count == 1:
+            if (now - last_alert) >= 15:
+                self.deauth_alert_cooldown[target_mac] = now
+                self._add_alert({
+                    "type": "Deauth Activity",
+                    "severity": "Medium",
+                    "target_mac": target_mac,
+                    "deauth_count": 1,
+                    "details": f"Observed a deauthentication frame targeting {target_mac}."
+                })
 
     def _find_serial_ports(self):
         try:
@@ -789,13 +835,34 @@ class App(ctk.CTk):
                 
                 is_evil_twin = False
                 
+                # ── BSSID State Cleanup ──
+                current_time = time.time()
+                if current_time - getattr(self, 'last_bssid_cleanup_time', 0) > 10:
+                    self.last_bssid_cleanup_time = current_time
+                    stale_bssids = [b for b, t in getattr(self, 'bssid_last_seen', {}).items() if current_time - t > 120]
+                    for stale_b in stale_bssids:
+                        self.bssid_last_seen.pop(stale_b, None)
+                        self.bssid_channel.pop(stale_b, None)
+                        self.bssid_rssi.pop(stale_b, None)
+                        self.bssid_first_seen.pop(stale_b, None)
+                        self.bssid_seen_count.pop(stale_b, None)
+                        self.network_map.pop(stale_b, None)
+                        for s, b_set in list(self.ssid_to_bssid.items()):
+                            if stale_b in b_set:
+                                b_set.remove(stale_b)
+                                if not b_set:
+                                    del self.ssid_to_bssid[s]
+
                 # Update map if SSID is present
                 if ssid and bssid:
                     self.network_map[bssid] = ssid
+                    if not hasattr(self, 'bssid_last_seen'):
+                        self.bssid_last_seen = {}
+                    self.bssid_last_seen[bssid] = current_time
                     
                     # Track first seen timestamp
                     if bssid not in self.bssid_first_seen:
-                        self.bssid_first_seen[bssid] = time.time()
+                        self.bssid_first_seen[bssid] = current_time
                     
                     # Track channel and RSSI history per BSSID
                     if channel:
@@ -815,9 +882,12 @@ class App(ctk.CTk):
                     
                     self.bssid_seen_count[bssid] = self.bssid_seen_count.get(bssid, 0) + 1
                     
+                    # ── Gate 0: Skip if not target network ───────────────
+                    if self.target_ssid and ssid != self.target_ssid:
+                        pass # Ignore for Evil Twin detection if it's not our target network
+                        
                     # ── Gate 1: Skip if this BSSID is whitelisted ───────────────
-                    trusted = self.whitelist.get(ssid, set())
-                    if bssid in trusted:
+                    elif bssid in self.whitelist.get(ssid, set()):
                         pass  # Trusted — skip Evil Twin analysis
                     
                     # ── Gate 2: Minimum sightings before flagging ───
@@ -878,9 +948,14 @@ class App(ctk.CTk):
                                         self.alerts_list[idx]["score"] = score
                                         self.alerts_list[idx]["type"] = f"Evil Twin [{confidence_label} {score}%]"
                                         self.alerts_list[idx]["severity"] = severity
+                                        
+                                        if current_time - self.last_eviltwin_audio_time.get(alert_key, 0) >= 60:
+                                            self._play_alert_sound("Evil Twin Wifi Detected")
+                                            self.last_eviltwin_audio_time[alert_key] = current_time
                                 else:
                                     self.alert_count += 1
                                     self._play_alert_sound("Evil Twin Wifi Detected")
+                                    self.last_eviltwin_audio_time[alert_key] = current_time
                                     new_alert = {
                                         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                         "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
