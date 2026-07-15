@@ -985,6 +985,8 @@ class App(ctk.CTk):
                     new_mac = packet['mac_src']
                     old_mac = packet.get('old_mac', '?')
                     alert_key = (ip, new_mac)
+                    confidence = packet.get('confidence', 'FIRST_SEEN')
+                    alert_type = packet.get('alert_type', 'ip_mac_change')
                     
                     # Rate-limit: 1 alert per (ip, mac) per 10 seconds
                     now = time.time()
@@ -992,16 +994,32 @@ class App(ctk.CTk):
                     if now - last_arp >= 10:
                         self.alert_count += 1
                         self._play_alert_sound("ARP Spoofing Detected")
-                        details = f"IP {ip} changed from {old_mac} to {new_mac}"
+                        
+                        # Build details string with confidence context
+                        if alert_type == "gateway_spoof":
+                            details = (
+                                f"Gateway {ip} spoofed! Expected MAC: {old_mac}, "
+                                f"got: {new_mac} [Confidence: {confidence}]"
+                            )
+                            alert_label = "ARP Spoofing (Gateway Hijack)"
+                        else:
+                            details = (
+                                f"IP {ip} changed from {old_mac} to {new_mac} "
+                                f"[Confidence: {confidence}]"
+                            )
+                            alert_label = "ARP Spoofing"
+                        
                         self.alerts_list.append({
                             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "type": "ARP Spoofing",
+                            "type": alert_label,
                             "severity": "Critical",
                             "details": details,
                             "source_ip": ip,
                             "rogue_mac": new_mac,
                             "legit_mac": old_mac,
+                            "confidence": confidence,
+                            "alert_type": alert_type,
                             "seen_count": 1
                         })
                         self.arp_alerts_sent[alert_key] = now
