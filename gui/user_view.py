@@ -259,20 +259,27 @@ class UserView(ctk.CTkFrame):
             btn_f.pack(fill="x", padx=14, pady=(4, 12))
             _ssid = alert.get("ssid", "")
             _all = alert.get("all_bssids", [alert.get("rogue_mac", ""), alert.get("legit_mac", "")])
+            _rogue_mac = alert.get("rogue_mac", "")
+            
+            is_trusted = _rogue_mac in self.app.whitelist.get(_ssid, set())
 
-            def make_trust_cmd(s, bs, w=wrapper):
-                def _cmd():
-                    self.app._trust_ssid_bssids(s, bs)
-                    w.destroy()
-                    self._refresh_alerts()
-                return _cmd
-
-            ctk.CTkButton(
-                btn_f, text="✅ This is safe (e.g. my Wi-Fi Extender)",
-                font=ctk.CTkFont(size=14), height=36,
-                fg_color=ThemeManager.get("trust_btn_fg"), hover_color=ThemeManager.get("trust_btn_hover"),
-                command=make_trust_cmd(_ssid, _all)
-            ).pack(side="left")
+            if is_trusted:
+                ctk.CTkLabel(btn_f, text="✅ Trusted Device (Marked as Safe)",
+                             font=ctk.CTkFont(size=14, weight="bold"),
+                             text_color=ThemeManager.get("success")).pack(side="left")
+            else:
+                def make_trust_cmd(s, bs):
+                    def _cmd():
+                        self.app._trust_ssid_bssids(s, bs)
+                        self._refresh_alerts()
+                    return _cmd
+    
+                ctk.CTkButton(
+                    btn_f, text="✅ This is safe (e.g. my Wi-Fi Extender)",
+                    font=ctk.CTkFont(size=14), height=36,
+                    fg_color=ThemeManager.get("trust_btn_fg"), hover_color=ThemeManager.get("trust_btn_hover"),
+                    command=make_trust_cmd(_ssid, _all)
+                ).pack(side="left")
         else:
             # Non-Evil-Twin (deauth flood, etc.)
             raw_details = alert.get("details", "")

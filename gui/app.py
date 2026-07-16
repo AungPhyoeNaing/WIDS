@@ -1253,18 +1253,26 @@ class App(ctk.CTk):
                 
                 _ssid = alert.get("ssid", "")
                 _all  = alert.get("all_bssids", [alert.get("rogue_mac", ""), alert.get("legit_mac", "")])
+                _rogue_mac = alert.get("rogue_mac", "")
                 
-                def make_trust_cmd(s, bs, win=alerts_win):
-                    def _cmd():
-                        self._trust_ssid_bssids(s, bs)
-                        win.destroy()
-                        self.show_alerts_window()
-                    return _cmd
+                is_trusted = _rogue_mac in self.whitelist.get(_ssid, set())
                 
-                ctk.CTkButton(btn_f, text="✅ Trust — Mark as False Positive (Mesh/Extender)",
-                              font=ctk.CTkFont(size=12), height=32,
-                              fg_color=ThemeManager.get("trust_btn_fg"), hover_color=ThemeManager.get("trust_btn_hover"),
-                              command=make_trust_cmd(_ssid, _all)).pack(side="left")
+                if is_trusted:
+                    ctk.CTkLabel(btn_f, text="✅ Trusted Device (Marked as Safe)",
+                                 font=ctk.CTkFont(size=12, weight="bold"),
+                                 text_color=ThemeManager.get("success")).pack(side="left")
+                else:
+                    def make_trust_cmd(s, bs, win=alerts_win):
+                        def _cmd():
+                            self._trust_ssid_bssids(s, bs)
+                            win.destroy()
+                            self.show_alerts_window()
+                        return _cmd
+                    
+                    ctk.CTkButton(btn_f, text="✅ Trust — Mark as False Positive (Mesh/Extender)",
+                                  font=ctk.CTkFont(size=12), height=32,
+                                  fg_color=ThemeManager.get("trust_btn_fg"), hover_color=ThemeManager.get("trust_btn_hover"),
+                                  command=make_trust_cmd(_ssid, _all)).pack(side="left")
             elif alert["type"].startswith("ARP"):
                 ip = alert.get("source_ip", "?")
                 ctk.CTkLabel(inner, text=f"🌐  Target IP:  {ip}",
