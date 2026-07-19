@@ -634,6 +634,7 @@ class App(ctk.CTk):
 
     def _handle_deauth_packet(self, packet):
         self.deauth_count += 1 # Keep global count for dashboard stats
+        return # Hide deauthentication alerts for now
         target_mac = packet.get("mac_dst", "Unknown")
         now = time.time()
 
