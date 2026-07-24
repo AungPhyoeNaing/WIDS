@@ -172,6 +172,7 @@ class UserView(ctk.CTkFrame):
         else:
             display_type = display_type.replace("DEAUTH ACTIVITY", "DISCONNECTION ATTEMPT")
             display_type = display_type.replace("DEAUTH FLOOD", "SEVERE DISCONNECTION ATTACK")
+            display_type = display_type.replace("DEAUTH ATTACK", "DISCONNECTION ATTACK DETECTED")
             display_type = display_type.replace("ARP SPOOFING", "NETWORK SNOOPING")
 
         ctk.CTkLabel(
@@ -199,6 +200,15 @@ class UserView(ctk.CTkFrame):
                     font=ctk.CTkFont(size=14), text_color=ThemeManager.get("text_body"),
                     anchor="w"
                 ).pack(fill="x", padx=14, pady=(0, 8))
+            else:
+                target = alert.get("target_mac", "")
+                summary = target if target else alert.get("details", "")[:80]
+                if summary:
+                    ctk.CTkLabel(
+                        inner, text=f"🎯 {summary}",
+                        font=ctk.CTkFont(size=14), text_color=ThemeManager.get("text_body"),
+                        anchor="w"
+                    ).pack(fill="x", padx=14, pady=(0, 8))
             return wrapper
 
         # ── Full detail (Alerts tab)
@@ -293,6 +303,18 @@ class UserView(ctk.CTkFrame):
             elif "DEAUTH FLOOD" in alert_type:
                 explanation = "A severe disconnection attack is happening! An attacker is actively jamming a device on your network, forcing it offline."
                 action = "💡 Recommended: The targeted device may not be able to use Wi-Fi right now. This attack usually stops when the attacker leaves the area."
+            elif "DEAUTH ATTACK" in alert_type:
+                severity = alert.get("severity", "Low").upper()
+                score_val = alert.get("score", 0)
+                reasons_list = alert.get("reasons", [])
+                reasons_text = "; ".join(reasons_list) if reasons_list else "Multiple suspicious indicators detected"
+                explanation = f"A WiFi disconnection attack has been detected (suspicion score: {score_val}). An attacker is sending deauthentication frames to disrupt network connections. Indicators: {reasons_text}"
+                if severity == "CRITICAL":
+                    action = "💡 Recommended: 1) Immediately check the area for unauthorized devices (e.g. WiFi Pineapple). 2) Enable WPA3 or 802.11w PMF on your router. 3) Identify the source device and isolate it."
+                elif severity == "HIGH":
+                    action = "💡 Recommended: 1) Check for unknown devices near your network. 2) Enable 802.11w Protected Management Frames on your router. 3) Monitor the targeted device."
+                else:
+                    action = "💡 Recommended: Monitor the situation. If attacks persist, check your router settings and look for suspicious devices nearby."
             elif "ARP" in alert_type:
                 explanation = "Another device on your network is trying to secretly intercept or spy on your internet traffic."
                 action = "💡 Recommended: Check for unknown devices connected to your Wi-Fi. If you don't recognize them, change your Wi-Fi password."

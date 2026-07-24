@@ -13,6 +13,8 @@ from serial.tools import list_ports
 from PIL import Image, ImageDraw
 from gui.user_view import UserView
 from gui.theme import ThemeManager
+from ids.deauth_detector import DeauthDetector
+from ids import config as ids_config
 
 
 class App(ctk.CTk):
@@ -61,7 +63,11 @@ class App(ctk.CTk):
         # Persistent whitelist: ssid -> set of trusted BSSIDs
         self.whitelist_path = os.path.join(os.path.dirname(__file__), "..", "ids", "whitelist.json")
         self.whitelist = self._load_whitelist()
-        
+
+        # Deauthentication detector
+        self.deauth_detector = DeauthDetector()
+        self._sync_deauth_whitelist()
+
         self.packet_queue = queue.Queue()
         self.update_interval = 500 # ms
         
@@ -581,6 +587,14 @@ class App(ctk.CTk):
             self.whitelist[ssid] = set()
         self.whitelist[ssid].update(bssids)
         self._save_whitelist()
+        self._sync_deauth_whitelist()
+
+    def _sync_deauth_whitelist(self):
+        """Flatten per-SSID whitelist into a flat set for the deauth detector."""
+        all_trusted = set()
+        for bssids in self.whitelist.values():
+            all_trusted.update(bssids)
+        ids_config.WHITELIST_BSSID = all_trusted
 
     # ────────────────────────────────────────────────────────────────────────
 
@@ -633,46 +647,47 @@ class App(ctk.CTk):
         return alert
 
     def _handle_deauth_packet(self, packet):
-        self.deauth_count += 1 # Keep global count for dashboard stats
-        return # Hide deauthentication alerts for now
-        target_mac = packet.get("mac_dst", "Unknown")
-        now = time.time()
+        self.deauth_count += 1
 
-        # Initialize tracking for this MAC
-        if target_mac not in self.deauth_history:
-            self.deauth_history[target_mac] = collections.deque(maxlen=50)
-            
-        self.deauth_history[target_mac].append(now)
-        
-        # Prune old timestamps (older than 5 seconds)
-        while self.deauth_history[target_mac] and (now - self.deauth_history[target_mac][0]) > 5.0:
-            self.deauth_history[target_mac].popleft()
-            
-        recent_count = len(self.deauth_history[target_mac])
-        last_alert = self.deauth_alert_cooldown.get(target_mac, 0)
-        
-        # Trigger Flood Alert
-        if recent_count >= 10:
-            if (now - last_alert) >= 15: # Cooldown
-                self.deauth_alert_cooldown[target_mac] = now
-                self._add_alert({
-                    "type": "Deauth Flood",
-                    "severity": "High",
-                    "target_mac": target_mac,
-                    "deauth_count": recent_count,
-                    "details": f"Detected a flood of {recent_count} deauthentication frames targeting {target_mac} within 5 seconds."
-                })
-        # Trigger Activity Alert for isolated packets
-        elif recent_count == 1:
-            if (now - last_alert) >= 15:
-                self.deauth_alert_cooldown[target_mac] = now
-                self._add_alert({
-                    "type": "Deauth Activity",
-                    "severity": "Medium",
-                    "target_mac": target_mac,
-                    "deauth_count": 1,
-                    "details": f"Observed a deauthentication frame targeting {target_mac}."
-                })
+        # Map project packet format to detector format
+        detector_packet = {
+            "src": packet.get("mac_src"),
+            "dst": packet.get("mac_dst"),
+            "bssid": packet.get("bssid"),
+            "reason": packet.get("reason", 0),
+            "subtype": packet.get("subtype"),
+            "timestamp": time.time(),
+        }
+
+        alert = self.deauth_detector.process(detector_packet)
+
+        if alert:
+            score = alert.get("score", 0)
+            if score >= 8:
+                severity = "Critical"
+            elif score >= 6:
+                severity = "High"
+            elif score >= 4:
+                severity = "Medium"
+            else:
+                severity = "Low"
+
+            reasons_str = " | ".join(alert.get("reasons", []))
+
+            self._add_alert({
+                "time": alert.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "type": f"Deauth Attack [{severity}]",
+                "severity": severity,
+                "target_mac": alert.get("victim", "Unknown"),
+                "source_mac": alert.get("source", "Unknown"),
+                "bssid": alert.get("bssid", "Unknown"),
+                "deauth_count": self.deauth_count,
+                "details": reasons_str,
+                "score": score,
+                "reasons": alert.get("reasons", []),
+                "seen_count": 1,
+            })
 
     def _find_serial_ports(self):
         try:
@@ -1306,22 +1321,42 @@ class App(ctk.CTk):
 
             elif alert["type"].startswith("Deauth"):
                 target = alert.get("target_mac", "Unknown")
+                source = alert.get("source_mac", "Unknown")
+                bssid_val = alert.get("bssid", "Unknown")
                 count = alert.get("deauth_count", 1)
-                
+                score_val = alert.get("score", 0)
+                reasons_list = alert.get("reasons", [])
+
                 ctk.CTkLabel(inner, text=f"🎯  Target MAC:  {target}",
                              font=ctk.CTkFont(size=13, weight="bold"),
                              text_color=ThemeManager.get("text_body")).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
-                
-                ctk.CTkLabel(inner, text=f"📊  Frames Detected:  {count}",
+
+                src_f = ctk.CTkFrame(inner, fg_color="transparent")
+                src_f.pack(fill="x", padx=14, pady=(4, 2))
+                ctk.CTkLabel(src_f, text=f"🔴  Source (Attacker):",
+                             font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("danger")).pack(side="left")
+                ctk.CTkLabel(src_f, text=f"  {source}",
+                             font=ctk.CTkFont(size=12, family="Courier"), text_color=ThemeManager.get("danger")).pack(side="left")
+
+                ctk.CTkLabel(inner, text=f"📡  BSSID:  {bssid_val}",
+                             font=ctk.CTkFont(size=12), text_color=ThemeManager.get("text_dim")).pack(fill="x", padx=14, pady=(2, 2), anchor="w")
+
+                ctk.CTkLabel(inner, text=f"📊  Frames Detected:  {count}  ·  Suspicion Score:  {score_val}",
                              font=ctk.CTkFont(size=12), text_color=ThemeManager.get("warning")).pack(fill="x", padx=14, pady=(2, 2), anchor="w")
-                
+
+                if reasons_list:
+                    reasons_text = "\n".join(f"    * {r}" for r in reasons_list)
+                    ctk.CTkLabel(inner, text=f"🔍  Triggered Conditions:\n{reasons_text}",
+                                 font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_dim"),
+                                 justify="left", wraplength=840).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
+
                 ctk.CTkLabel(inner, text=f"📡  Details: {alert.get('details', '')}",
                              font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_dim"),
                              justify="left", wraplength=840).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
-                             
+
                 action_f = ctk.CTkFrame(inner, fg_color=ThemeManager.get("bg_elevated"), corner_radius=6)
                 action_f.pack(fill="x", padx=14, pady=(4, 14))
-                ctk.CTkLabel(action_f, text="💡 Tech Actions:  1) Check physical area for attackers (e.g. WiFi Pineapples).  2) Upgrade AP to WPA3 or enable 802.11w Protected Management Frames (PMF).",
+                ctk.CTkLabel(action_f, text="💡 Tech Actions:  1) Check physical area for attackers (e.g. WiFi Pineapples).  2) Upgrade AP to WPA3 or enable 802.11w Protected Management Frames (PMF).  3) Identify and isolate the source device.",
                              font=ctk.CTkFont(size=11), text_color=ThemeManager.get("text_muted"),
                              justify="left", wraplength=840).pack(padx=10, pady=6, anchor="w")
                              
