@@ -1,4 +1,6 @@
 import logging
+import signal
+import sys
 from gui.app import App
 from ids.serial_reader import SerialReader
 from ids.arp_sniffer import ARPSniffer
@@ -53,9 +55,30 @@ class Controller:
 
         self.app.add_packet(packet)
 
+    def shutdown(self):
+        """Gracefully stop all background threads."""
+        logging.info("Shutting down WIDS...")
+        self.arp_sniffer.stop()
+        self.serial_reader.disconnect()
+        logging.info("WIDS shutdown complete.")
+
     def run(self):
+        # Register the cleanup for when the Tk window is closed
+        self.app.protocol("WM_DELETE_WINDOW", self._on_close)
         self.app.mainloop()
+
+    def _on_close(self):
+        """Handle window close: stop threads, then destroy GUI."""
+        self.shutdown()
+        self.app.destroy()
 
 if __name__ == "__main__":
     controller = Controller()
+    
+    # Handle Ctrl+C gracefully
+    def _signal_handler(sig, frame):
+        controller.shutdown()
+        sys.exit(0)
+    signal.signal(signal.SIGINT, _signal_handler)
+    
     controller.run()

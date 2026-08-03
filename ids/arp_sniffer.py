@@ -19,6 +19,7 @@ class ARPSniffer:
         self.running = False
         # arp_table now stores (mac, timestamp) tuples for aging
         self.arp_table = {}
+        self._lock = threading.Lock()
 
     def start(self, interface=None):
         self.running = True
@@ -31,20 +32,22 @@ class ARPSniffer:
 
     def _sniff_loop(self, interface):
         try:
-            sniff(filter="arp", prn=self._handle_packet, store=False,
-                  stop_filter=lambda _: not self.running)
+            while self.running:
+                sniff(filter="arp", prn=self._handle_packet, store=False,
+                      stop_filter=lambda _: not self.running, timeout=1)
         except Exception as e:
-            logger.error(f"ARP Sniffer loop encountered an error: {e}")
+            logger.exception(f"ARP Sniffer loop encountered an error: {e}")
 
     def _expire_stale_entries(self):
         """Remove ARP table entries older than ARP_TABLE_TIMEOUT."""
         now = time.time()
-        stale_ips = [
-            ip for ip, (mac, ts) in self.arp_table.items()
-            if now - ts > ARP_TABLE_TIMEOUT
-        ]
-        for ip in stale_ips:
-            del self.arp_table[ip]
+        with self._lock:
+            stale_ips = [
+                ip for ip, (mac, ts) in self.arp_table.items()
+                if now - ts > ARP_TABLE_TIMEOUT
+            ]
+            for ip in stale_ips:
+                del self.arp_table[ip]
 
     def _handle_packet(self, packet):
         if packet.haslayer(ARP) and packet[ARP].op in (1, 2):
@@ -78,18 +81,20 @@ class ARPSniffer:
                     return
 
                 # Gateway MAC matches — update table, no alert
-                self.arp_table[ip] = (mac, time.time())
+                with self._lock:
+                    self.arp_table[ip] = (mac, time.time())
                 return
 
             # ── Standard first-seen detection for non-gateway IPs ───────
-            entry = self.arp_table.get(ip)
-            old_mac = entry[0] if entry else None
-
-            spoofed = False
-            if old_mac and old_mac != mac:
-                spoofed = True
-            else:
-                self.arp_table[ip] = (mac, time.time())
+            with self._lock:
+                entry = self.arp_table.get(ip)
+                old_mac = entry[0] if entry else None
+    
+                spoofed = False
+                if old_mac and old_mac != mac:
+                    spoofed = True
+                else:
+                    self.arp_table[ip] = (mac, time.time())
 
             if spoofed:
                 # Determine confidence based on gateway resolver state

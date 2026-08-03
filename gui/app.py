@@ -9,6 +9,7 @@ import json
 import os
 import math
 import subprocess
+import logging
 from serial.tools import list_ports
 from PIL import Image, ImageDraw
 from gui.user_view import UserView
@@ -52,6 +53,10 @@ class App(ctk.CTk):
         self.last_eviltwin_alert_time = {} # BSSID -> timestamp
         self.last_eviltwin_audio_time = {} # (ssid, rogue_mac) -> timestamp
         self.eviltwin_alert_map = {} # (ssid, rogue_mac) -> alert dict
+        
+        # Host Wi-Fi state
+        self.host_ssid = None
+        self.last_host_ssid_check = 0
         self.bssid_last_seen = {} # BSSID -> timestamp of last packet
         self.last_bssid_cleanup_time = 0 # timestamp of last cleanup
         self.deauth_history = {} # target_mac -> deque of timestamps
@@ -80,10 +85,20 @@ class App(ctk.CTk):
         self.user_view.grid(row=0, column=1, sticky="nsew")
         self.user_view.grid_remove()
         
-        self.after(self.update_interval, self.process_packet_queue)
-        self.after(1000, self._try_auto_connect_serial)
-        self.after(30000, self._check_unacknowledged_alerts)
+        self._after_ids = []
+        self._after_ids.append(self.after(self.update_interval, self.process_packet_queue))
+        self._after_ids.append(self.after(1000, self._try_auto_connect_serial))
+        self._after_ids.append(self.after(30000, self._check_unacknowledged_alerts))
         
+    def destroy(self):
+        """Cancel all pending after() callbacks before destroying."""
+        for after_id in getattr(self, '_after_ids', []):
+            try:
+                self.after_cancel(after_id)
+            except Exception:
+                pass
+        super().destroy()
+
     def _detect_current_ssid(self):
         try:
             if os.name == 'nt':
@@ -98,7 +113,7 @@ class App(ctk.CTk):
                             if ssid:
                                 return ssid
         except Exception as e:
-            print(f"Failed to detect SSID: {e}")
+            logging.warning(f"Failed to detect SSID: {e}")
         return None
 
     def create_sidebar(self):
@@ -116,7 +131,8 @@ class App(ctk.CTk):
             
             logo_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(40, 40))
             self.logo_label = ctk.CTkLabel(self.sidebar_frame, text=" WIDS", image=logo_img, compound="left", font=ctk.CTkFont(family="Consolas", size=26, weight="bold"))
-        except Exception:
+        except Exception as e:
+            logging.warning(f"Failed to load logo: {e}")
             self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="WIDS", font=ctk.CTkFont(family="Consolas", size=26, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(30, 20))
         
@@ -557,7 +573,17 @@ class App(ctk.CTk):
         is_enterprise = len(all_bssids) >= 4
         
         score_diff = top_score - bottom_score
-        is_likely_mesh = neither_is_laa and (all_same_vendor or is_enterprise or (both_router_oui and score_diff < 20))
+        
+        # Mesh/extender suppression: Many real routers use Realtek/Atheros chips, so we no longer penalize "laptop" OUIs for mesh suppression.
+        # If neither is locally administered, and the score discrepancy isn't extreme (score_diff < 40), it's likely a mesh network.
+        is_likely_mesh = neither_is_laa and (all_same_vendor or is_enterprise or score_diff < 40)
+
+        logging.warning(
+            f"[EVIL TWIN DIAGNOSTIC] SSID: '{ssid}' | BSSIDs: {all_bssids} | "
+            f"Scores: {scored} | LAA Check (neither_is_laa): {neither_is_laa} | "
+            f"Same Vendor (all_same_vendor): {all_same_vendor} | Enterprise: {is_enterprise} | "
+            f"Score Diff: {score_diff} | is_likely_mesh: {is_likely_mesh}"
+        )
 
         return suspected_rogue, suspected_legit, rogue_reasons, is_likely_mesh
 
@@ -569,7 +595,7 @@ class App(ctk.CTk):
             try:
                 with open(self.whitelist_path, "r") as f:
                     raw = json.load(f)
-                    return {k: set(v) for k, v in raw.items()}
+                    return {k: {mac.upper() for mac in v} for k, v in raw.items()}
             except Exception:
                 pass
         return {}
@@ -581,13 +607,13 @@ class App(ctk.CTk):
             with open(self.whitelist_path, "w") as f:
                 json.dump({k: list(v) for k, v in self.whitelist.items()}, f, indent=2)
         except Exception as e:
-            print(f"[WIDS] Could not save whitelist: {e}")
+            logging.warning(f"[WIDS] Could not save whitelist: {e}")
 
     def _trust_ssid_bssids(self, ssid: str, bssids: list):
         """Add all given BSSIDs for an SSID to the whitelist."""
         if ssid not in self.whitelist:
             self.whitelist[ssid] = set()
-        self.whitelist[ssid].update(bssids)
+        self.whitelist[ssid].update(mac.upper() for mac in bssids)
         self._save_whitelist()
         self._sync_deauth_whitelist()
 
@@ -595,7 +621,7 @@ class App(ctk.CTk):
         """Flatten per-SSID whitelist into a flat set for the deauth detector."""
         all_trusted = set()
         for bssids in self.whitelist.values():
-            all_trusted.update(bssids)
+            all_trusted.update(mac.upper() for mac in bssids)
         ids_config.WHITELIST_BSSID = all_trusted
 
     # ────────────────────────────────────────────────────────────────────────
@@ -608,6 +634,10 @@ class App(ctk.CTk):
 
     def _play_alert_sound(self, message="Alert Detected"):
         try:
+            import ctypes
+            import os
+            
+            _audio_dir = os.path.join(os.path.dirname(__file__), "..", "voice_audios")
             now = time.time()
             # Audio debouncing: limit audio playback to once every 5 seconds per category
             if not hasattr(self, "_last_audio_play_time"):
@@ -615,35 +645,51 @@ class App(ctk.CTk):
             if now - self._last_audio_play_time.get(message, 0) < 5:
                 return
             self._last_audio_play_time[message] = now
-
-            import ctypes, os
             
+
             # Map the message to the corresponding pre-recorded Jarvis mp3 file
             audio_file = None
             if "Evil Twin" in message:
-                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-32-Warning-!!-Evil-twin-wifi-detected!!.mp3"
+                audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-32-Warning-!!-Evil-twin-wifi-detected!!.mp3")
             elif "ARP Spoofing" in message:
-                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-34-Warning-!!-MAC-Spoofing-detected-,-Sir!!!.mp3"
+                audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-34-Warning-!!-MAC-Spoofing-detected-,-Sir!!!.mp3")
             elif "Deauth" in message:
-                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-35-Warning-!!-Deauth-Attack-Frames-has-been-found-,.mp3"
+                audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-35-Warning-!!-Deauth-Attack-Frames-has-been-found-,.mp3")
             elif "Greeting" in message:
-                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-40-Hello-,-Sir-,-Our-Intrusion-Detection-System-is.mp3"
+                audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-40-Hello-,-Sir-,-Our-Intrusion-Detection-System-is.mp3")
             elif "Unacknowledged" in message:
-                audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-56-Sir-!!-please-check-the-alerts-history-carefully.mp3"
+                audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-56-Sir-!!-please-check-the-alerts-history-carefully.mp3")
             
             if audio_file and os.path.exists(audio_file):
                 path = os.path.abspath(audio_file)
+                
+                # Get short path to prevent MCI path parsing errors with spaces/special characters
+                buf_size = ctypes.windll.kernel32.GetShortPathNameW(path, None, 0)
+                if buf_size > 0:
+                    buf = ctypes.create_unicode_buffer(buf_size)
+                    ctypes.windll.kernel32.GetShortPathNameW(path, buf, buf_size)
+                    path = buf.value
+                
                 alias = "jarvis_voice"
                 
                 # Stop and close the alias to cancel any currently playing sound
                 ctypes.windll.winmm.mciSendStringW(f'stop {alias}', None, 0, None)
                 ctypes.windll.winmm.mciSendStringW(f'close {alias}', None, 0, None)
                 
-                # Open the new sound and play asynchronously (without 'wait')
-                ctypes.windll.winmm.mciSendStringW(f'open "{path}" alias {alias}', None, 0, None)
-                ctypes.windll.winmm.mciSendStringW(f'play {alias}', None, 0, None)
-        except Exception:
-            pass
+                # Open the new sound and play asynchronously
+                res_open = ctypes.windll.winmm.mciSendStringW(f'open {path} alias {alias}', None, 0, None)
+                if res_open != 0:
+                    err_buf = ctypes.create_unicode_buffer(256)
+                    ctypes.windll.winmm.mciGetErrorStringW(res_open, err_buf, 256)
+                    logging.warning(f"Audio open error: {err_buf.value}")
+                
+                res_play = ctypes.windll.winmm.mciSendStringW(f'play {alias}', None, 0, None)
+                if res_play != 0:
+                    err_buf = ctypes.create_unicode_buffer(256)
+                    ctypes.windll.winmm.mciGetErrorStringW(res_play, err_buf, 256)
+                    logging.warning(f"Audio play error: {err_buf.value}")
+        except Exception as e:
+            logging.warning(f"Audio playback error: {e}")
 
     def _add_alert(self, alert):
         self.alert_count += 1
@@ -654,7 +700,45 @@ class App(ctk.CTk):
         self.alerts_list.append(alert)
         if len(self.alerts_list) > 2000:
             self.alerts_list.pop(0)
+        
+        # Log the alert details
+        logging.warning(
+            f"[ALERT TRIGGERED] Type: {alert.get('type')} | Severity: {alert.get('severity')} | "
+            f"Details: {alert.get('details') or alert.get('ssid') or ''}"
+        )
         return alert
+
+    def _cleanup_stale_state(self):
+        """Periodically prune stale tracking state to prevent memory exhaustion."""
+        now = time.time()
+        if now - getattr(self, '_last_state_cleanup', 0) < 60:
+            return
+        self._last_state_cleanup = now
+        
+        # Cap eviltwin_alert_map to 500 entries
+        if len(self.eviltwin_alert_map) > 500:
+            keys = sorted(self.eviltwin_alert_map.keys(), 
+                           key=lambda k: self.eviltwin_alert_map[k].get('last_seen', ''), 
+                           reverse=True)
+            for key in keys[500:]:
+                del self.eviltwin_alert_map[key]
+        
+        # Cap last_eviltwin_alert_time to 500 entries
+        if len(self.last_eviltwin_alert_time) > 500:
+            sorted_keys = sorted(self.last_eviltwin_alert_time.keys(), 
+                                  key=lambda k: self.last_eviltwin_alert_time[k], reverse=True)
+            for key in sorted_keys[500:]:
+                del self.last_eviltwin_alert_time[key]
+        
+        # Cap arp_alerts_sent — remove entries older than 60 seconds
+        stale_arp = [k for k, t in self.arp_alerts_sent.items() if now - t > 60]
+        for k in stale_arp:
+            del self.arp_alerts_sent[k]
+        
+        # Cap deauth_alert_cooldown — remove entries older than 60 seconds  
+        stale_deauth = [k for k, t in self.deauth_alert_cooldown.items() if now - t > 60]
+        for k in stale_deauth:
+            del self.deauth_alert_cooldown[k]
 
     def _handle_deauth_packet(self, packet):
         self.deauth_count += 1
@@ -878,8 +962,31 @@ class App(ctk.CTk):
         self.packet_queue.put(packet)
         self.user_view.add_packet(packet)
 
+    def _update_host_ssid(self):
+        """Update the currently connected Wi-Fi SSID (Windows only)."""
+        import subprocess
+        try:
+            # Hide the console window when running subprocess on Windows
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+            output = subprocess.check_output(["netsh", "wlan", "show", "interfaces"], text=True, startupinfo=startupinfo)
+            for line in output.split('\n'):
+                if "SSID" in line and "BSSID" not in line:
+                    self.host_ssid = line.split(":", 1)[1].strip()
+                    return
+            self.host_ssid = None
+        except Exception:
+            pass
+
     def process_packet_queue(self):
+        current_time = time.time()
+        if current_time - self.last_host_ssid_check > 5.0:
+            self.last_host_ssid_check = current_time
+            self._update_host_ssid()
+
         packets_to_insert = []
+        self._cleanup_stale_state()
         qsize = self.packet_queue.qsize()
         # Flow control: if queue is overflowing (>1000 items), drop non-essential frames to maintain responsiveness
         high_load = qsize > 1000
@@ -956,8 +1063,21 @@ class App(ctk.CTk):
                     
                     self.bssid_seen_count[bssid] = self.bssid_seen_count.get(bssid, 0) + 1
                     
+                    # Track channel history for spoof detection
+                    if not hasattr(self, 'bssid_channel_history'):
+                        self.bssid_channel_history = {}
+                    if bssid not in self.bssid_channel_history:
+                        self.bssid_channel_history[bssid] = []
+                    
+                    is_channel_bounce = False
+                    # Channel bounce disabled: ESP32 channel hopping receives RF leakage from wide 20/40MHz channels across multiple channels, causing false positive Evil Twin alerts.
+                    
+                    # ── Gate 0: Only check connected Wi-Fi for Evil Twin ───────────────
+                    if not self.host_ssid or ssid != self.host_ssid:
+                        pass # Ignore other Wi-Fis, or wait until host_ssid is known
+                    
                     # ── Gate 1: Skip if this BSSID is whitelisted ───────────────
-                    if bssid in self.whitelist.get(ssid, set()):
+                    elif bssid.upper() in self.whitelist.get(ssid, set()):
                         pass  # Trusted — skip Evil Twin analysis
                     
                     # ── Gate 2: Flag immediately on BSSID conflict ───
@@ -974,7 +1094,6 @@ class App(ctk.CTk):
                                 confidence_label = "LOW"
                                 severity = "Low"
                                 tag = "eviltwin_low"
-                                score = max(score, 30)  # cap score for mesh
                             elif score >= 70:
                                 confidence_label = "HIGH"
                                 severity = "Critical"
@@ -991,9 +1110,9 @@ class App(ctk.CTk):
                             self.ssid_suspected_rogue[ssid] = rogue_mac
                             self.ssid_suspected_legit[ssid] = legit_mac
                             
-                            packet['is_evil_twin'] = True
+                            packet['is_evil_twin'] = not is_likely_mesh
                             packet['et_confidence'] = confidence_label
-                            packet['et_tag'] = tag
+                            packet['et_tag'] = tag if not is_likely_mesh else ""
                             packet['et_rogue_mac'] = rogue_mac
                             packet['et_legit_mac'] = legit_mac
                             packet['et_is_mesh'] = is_likely_mesh
@@ -1049,7 +1168,7 @@ class App(ctk.CTk):
                                 self.last_eviltwin_alert_time[bssid] = current_time
 
                     # ── Gate 3: Single-BSSID Channel Mismatch (Spoofed MAC Rogue AP) ───
-                    elif channel and prev_channel and int(channel) != prev_channel:
+                    elif is_channel_bounce:
                         score = 85
                         confidence_label = "HIGH"
                         severity = "Critical"

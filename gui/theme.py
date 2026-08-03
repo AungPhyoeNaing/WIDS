@@ -149,7 +149,9 @@ class ThemeManager:
                 with open(cls._pref_path, "r") as f:
                     pref = json.load(f)
                     cls._current = pref.get("theme", "dark")
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.warning(f"Could not load theme preference: {e}")
             cls._current = "dark"
         ctk.set_appearance_mode(cls._current)
 
@@ -165,8 +167,9 @@ class ThemeManager:
         try:
             with open(cls._pref_path, "w") as f:
                 json.dump({"theme": cls._current}, f)
-        except Exception:
-            pass
+        except Exception as e:
+            import logging  
+            logging.warning(f"Could not save theme preference: {e}")
             
         for listener in cls._listeners:
             listener()

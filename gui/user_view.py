@@ -428,23 +428,6 @@ class UserView(ctk.CTkFrame):
             txt, clr = "✅  Secure", ThemeManager.get("success")
         self._secure_label.configure(text=txt, text_color=clr)
 
-    def _update_secure_status(self):
-        if self._secure_label is None or not self._secure_label.winfo_exists():
-            return
-
-        alerts = self.app.alerts_list
-        critical = sum(1 for a in alerts if a.get("severity") == "Critical")
-        high = sum(1 for a in alerts if a.get("severity") == "High")
-        if critical > 0:
-            txt, clr = f"⚠️  {critical} critical alert(s)", ThemeManager.get("danger")
-        elif high > 0:
-            txt, clr = f"⚠️  {high} high alert(s)", ThemeManager.get("warning")
-        elif alerts:
-            txt, clr = f"⚠️  {len(alerts)} alert(s)", ThemeManager.get("warning")
-        else:
-            txt, clr = "✅  Secure \u2014 No threats detected", ThemeManager.get("success")
-        self._secure_label.configure(text=txt, text_color=clr)
-
     def _update_devices_count(self):
         if self._devices_label is None or not self._devices_label.winfo_exists():
             return
@@ -502,6 +485,7 @@ class UserView(ctk.CTkFrame):
             container, text="",
             font=ctk.CTkFont(size=15), text_color=ThemeManager.get("text_muted")
         )
+        self._alert_count_label = count_lbl
         def make_header():
             self._make_header(container, "Security Alerts", count_lbl)
         make_header()
@@ -522,13 +506,9 @@ class UserView(ctk.CTkFrame):
             return
 
         alerts = list(self.app.alerts_list)
-        # Update count badge in header (find it)
-        for w in self._alerts_scroll.master.winfo_children():
-            if isinstance(w, ctk.CTkFrame) and w.grid_info().get("row") == 0:
-                for sub in w.winfo_children():
-                    if isinstance(sub, ctk.CTkLabel) and "alert" in sub.cget("text").lower():
-                        sub.configure(text=f"{len(alerts)} alert(s)")
-                        break
+        # Update count badge in header
+        if hasattr(self, '_alert_count_label') and self._alert_count_label and self._alert_count_label.winfo_exists():
+            self._alert_count_label.configure(text=f"{len(alerts)} alert(s)")
 
         order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
         alerts.sort(key=lambda a: (order.get(a.get("severity", "Low"), 9), a.get("time", "")), reverse=True)
@@ -570,6 +550,7 @@ class UserView(ctk.CTkFrame):
                 self._refresh_home_preview()
             elif self.page == "alert":
                 self._refresh_alerts()
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.debug(f"UserView live update error: {e}")
         self.after(1000, self._live_update)

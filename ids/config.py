@@ -1,3 +1,9 @@
+import json
+import os
+import logging
+
+_logger = logging.getLogger(__name__)
+
 TIME_WINDOW = 30
 MAX_DEAUTH_PER_WINDOW = 10
 MAX_VICTIMS_PER_AP = 3
@@ -34,3 +40,20 @@ REASON_CODES = {
     39: "Requested from peer STA due to timeout",
     45: "Peer STA does not support the requested QoS",
 }
+
+def _load_whitelist():
+    """Load trusted BSSIDs from whitelist.json into WHITELIST_BSSID."""
+    whitelist_path = os.path.join(os.path.dirname(__file__), "whitelist.json")
+    try:
+        if os.path.exists(whitelist_path):
+            with open(whitelist_path, "r") as f:
+                data = json.load(f)
+            for group_name, mac_list in data.items():
+                for mac in mac_list:
+                    WHITELIST_BSSID.add(mac.upper())
+            if WHITELIST_BSSID:
+                _logger.info(f"Loaded {len(WHITELIST_BSSID)} trusted BSSIDs from whitelist.json")
+    except Exception as e:
+        _logger.warning(f"Could not load whitelist.json: {e}")
+
+_load_whitelist()

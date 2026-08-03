@@ -44,6 +44,9 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     // Range Limiter: Drop packets that are too weak (outside our intended sniffing zone)
     if (pkt->rx_ctrl.rssi < MIN_RSSI_THRESHOLD) return;
 
+    // Safety: ensure packet is large enough for a management frame header (24 bytes minimum)
+    if (pkt->rx_ctrl.sig_len < 24) return;
+
     SniffPacket p;
     p.timestamp = millis();
     p.rssi = pkt->rx_ctrl.rssi;
@@ -76,7 +79,11 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
 
     // Send the packet to the queue (non-blocking)
     // If the queue is full, we just drop the packet to prevent crashing
-    xQueueSendFromISR(packetQueue, &p, NULL);
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xQueueSendFromISR(packetQueue, &p, &xHigherPriorityTaskWoken);
+    if (xHigherPriorityTaskWoken) {
+        portYIELD_FROM_ISR();
+    }
 }
 
 void setup() {
@@ -155,6 +162,6 @@ void loop() {
         packetsProcessed++;
     }
     
-    // Small delay to yield to the FreeRTOS idle task
-    delay(1);
+    // Yield to FreeRTOS idle task without blocking
+    vTaskDelay(1);
 }

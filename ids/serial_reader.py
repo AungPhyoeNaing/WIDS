@@ -2,6 +2,9 @@ import serial
 import threading
 import json
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 class SerialReader:
     def __init__(self, callback):
@@ -19,18 +22,18 @@ class SerialReader:
             try:
                 initial_line = self.serial.readline().decode('utf-8', errors='ignore').strip()
                 if initial_line:
-                    print(f"Serial data received on {port}: {initial_line[:120]}")
+                    logger.info(f"Serial data received on {port}: {initial_line[:120]}")
                 else:
-                    print(f"Port {port} connected (waiting for serial data stream...)")
+                    logger.info(f"Port {port} connected (waiting for serial data stream...)")
             except Exception:
-                print(f"Port {port} connected")
+                logger.info(f"Port {port} connected")
 
             self.running = True
             self.thread = threading.Thread(target=self.read_loop, daemon=True)
             self.thread.start()
             return True
         except Exception as e:
-            print(f"Error connecting to serial: {e}")
+            logger.error(f"Error connecting to serial: {e}")
             return False
 
     def disconnect(self):
@@ -38,10 +41,19 @@ class SerialReader:
         if self.thread:
             self.thread.join(timeout=2)
         if self.serial and self.serial.is_open:
-            self.serial.close()
+            try:
+                self.serial.close()
+            except serial.SerialException:
+                pass
 
     def read_loop(self):
-        while self.running and self.serial and self.serial.is_open:
+        retries = 0
+        backoff = [1, 2, 4, 8, 16]
+        while self.running:
+            if not self.serial or not self.serial.is_open:
+                time.sleep(1)
+                continue
+                
             try:
                 line = self.serial.readline().decode('utf-8', errors='ignore').strip()
                 if line:
@@ -50,10 +62,32 @@ class SerialReader:
                             packet_data = json.loads(line)
                             self.callback(packet_data)
                         except json.JSONDecodeError:
-                            print(f"Failed to parse JSON: {line}")
+                            logger.error(f"Failed to parse JSON: {line}")
                     else:
                         # General debug output from ESP32
-                        print(f"ESP32: {line}")
+                        logger.info(f"ESP32: {line}")
+                retries = 0  # reset on success
             except Exception as e:
-                print(f"Serial read error: {e}")
-                time.sleep(1)
+                logger.error(f"Serial read error: {e}")
+                if self.running:
+                    try:
+                        self.serial.close()
+                    except Exception:
+                        pass
+                    
+                    while self.running and retries < len(backoff):
+                        time.sleep(backoff[retries])
+                        retries += 1
+                        try:
+                            logger.info(f"Attempting to reconnect (attempt {retries})...")
+                            self.serial.open()
+                            logger.info("Reconnected successfully.")
+                            break
+                        except Exception as reconnect_err:
+                            logger.error(f"Reconnect failed: {reconnect_err}")
+                    
+                    if retries >= len(backoff):
+                        logger.error("Max retries reached, giving up.")
+                        self.running = False
+                else:
+                    time.sleep(1)

@@ -9,6 +9,7 @@ for robust ARP spoof detection.
 import threading
 import time
 import logging
+import ipaddress
 
 from ids.oui_lookup import lookup_oui, is_network_equipment, is_consumer_device, is_iot_device
 
@@ -60,21 +61,24 @@ class GatewayResolver:
 
             # Get the default gateway IP from the OS routing table
             route_info = conf.route.route("0.0.0.0")
-            self.gateway_ip = route_info[2]
+            gw_ip = route_info[2]
 
-            if not self.gateway_ip or self.gateway_ip == "0.0.0.0":
+            if not gw_ip or gw_ip == "0.0.0.0":
                 logger.warning("Could not determine default gateway IP.")
                 return False
 
             # Resolve gateway MAC via ARP
-            self.gateway_mac = getmacbyip(self.gateway_ip)
+            gw_mac = getmacbyip(gw_ip)
 
-            if not self.gateway_mac:
-                logger.warning(f"Could not resolve MAC for gateway {self.gateway_ip}")
+            if not gw_mac:
+                logger.warning(f"Could not resolve MAC for gateway {gw_ip}")
                 return False
 
-            # Normalize MAC to uppercase
-            self.gateway_mac = self.gateway_mac.upper()
+            gw_mac = gw_mac.upper()
+
+            with self._lock:
+                self.gateway_ip = gw_ip
+                self.gateway_mac = gw_mac
 
             # Perform vendor lookup
             self.gateway_vendor, self.gateway_vendor_category = lookup_oui(self.gateway_mac)
@@ -209,15 +213,27 @@ class GatewayResolver:
         """
         try:
             from scapy.all import ARP, Ether, srp, conf
-            import ipaddress
 
-            if not self.gateway_ip:
+            with self._lock:
+                gw_ip = self.gateway_ip
+            if not gw_ip:
                 logger.warning("Cannot scan subnet: gateway IP not resolved.")
                 return {}
 
-            # Determine the subnet (assume /24 for most home/office networks)
+            # Determine subnet — use routing table if available, fallback to /24
+            prefix_len = 24
+            try:
+                for net_addr, netmask, gw, iface, src_ip, metric in conf.route.routes:
+                    if src_ip and netmask and gw_ip and net_addr != 0:
+                        src_net = ipaddress.IPv4Network(f"{src_ip}/{bin(netmask).count('1')}", strict=False)
+                        if ipaddress.IPv4Address(gw_ip) in src_net:
+                            prefix_len = bin(netmask).count('1')
+                            break
+            except Exception:
+                pass
+
             network = ipaddress.IPv4Network(
-                f"{self.gateway_ip}/24", strict=False
+                f"{gw_ip}/{prefix_len}", strict=False
             )
 
             logger.info(f"Starting subnet scan on {network}...")
@@ -274,13 +290,14 @@ class GatewayResolver:
         Get a summary dict of the current gateway state.
         Useful for displaying in the GUI.
         """
-        return {
-            "gateway_ip": self.gateway_ip,
-            "gateway_mac": self.gateway_mac,
-            "confidence": self.confidence,
-            "vendor": self.gateway_vendor,
-            "vendor_category": self.gateway_vendor_category,
-            "esp32_bssid_count": len(self._esp32_bssids),
-            "duplicate_macs": self.duplicate_macs,
-            "scan_complete": self.scan_complete,
-        }
+        with self._lock:
+            return {
+                "gateway_ip": self.gateway_ip,
+                "gateway_mac": self.gateway_mac,
+                "confidence": self.confidence,
+                "vendor": self.gateway_vendor,
+                "vendor_category": self.gateway_vendor_category,
+                "esp32_bssid_count": len(self._esp32_bssids),
+                "duplicate_macs": self.duplicate_macs,
+                "scan_complete": self.scan_complete,
+            }

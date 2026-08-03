@@ -27,8 +27,8 @@ class DeauthDetector:
         self.ap_victims = defaultdict(set)
         self.victim_counter = defaultdict(int)
         self.attack_times = defaultdict(list)
-        self.timing_history = defaultdict(list)
-        self.reason_counter = defaultdict(list)
+        self.timing_history = defaultdict(lambda: deque(maxlen=20))
+        self.reason_counter = defaultdict(lambda: deque(maxlen=20))
         self.alert_cache = {}
         self._last_log_time = {}
         self._last_cleanup_time = 0
@@ -41,18 +41,15 @@ class DeauthDetector:
 
         # Prune attack_times older than 60s
         for src in list(self.attack_times.keys()):
-            self.attack_times[src] = [t for t in self.attack_times[src] if now - t <= 60]
+            times = self.attack_times[src]
+            self.attack_times[src] = [t for t in times if now - t <= 60]
             if not self.attack_times[src]:
                 del self.attack_times[src]
 
-        # Limit reason_counter length
-        for src in list(self.reason_counter.keys()):
-            if len(self.reason_counter[src]) > 20:
-                self.reason_counter[src] = self.reason_counter[src][-20:]
-
         # Prune timing_history older than 60s
         for src in list(self.timing_history.keys()):
-            self.timing_history[src] = [t for t in self.timing_history[src] if now - t <= 60]
+            while self.timing_history[src] and now - self.timing_history[src][0] > 60:
+                self.timing_history[src].popleft()
             if not self.timing_history[src]:
                 del self.timing_history[src]
 
@@ -133,7 +130,7 @@ class DeauthDetector:
         # CONDITION 6: Reason code analysis
         if src:
             self.reason_counter[src].append(reason)
-            recent = self.reason_counter[src][-10:]
+            recent = list(self.reason_counter[src])[-10:]
             if len(set(recent)) == 1 and len(recent) >= 5:
                 score += 1
                 reason_name = REASON_CODES.get(reason, "Unknown")
@@ -168,8 +165,6 @@ class DeauthDetector:
                     reasons.append(
                         "Suspicious fixed packet timing pattern"
                     )
-            if len(history) > 20:
-                history.pop(0)
 
         # Final decision
         if score >= ALERT_SCORE:
