@@ -1,7 +1,10 @@
+import logging
 import threading
 import time
 import json
 from scapy.all import sniff, ARP
+
+logger = logging.getLogger(__name__)
 
 # ARP table entry aging: entries older than this are expired
 # to prevent false positives from DHCP reassignment
@@ -27,8 +30,11 @@ class ARPSniffer:
         self.running = False
 
     def _sniff_loop(self, interface):
-        sniff(filter="arp", prn=self._handle_packet, store=False,
-              stop_filter=lambda _: not self.running)
+        try:
+            sniff(filter="arp", prn=self._handle_packet, store=False,
+                  stop_filter=lambda _: not self.running)
+        except Exception as e:
+            logger.error(f"ARP Sniffer loop encountered an error: {e}")
 
     def _expire_stale_entries(self):
         """Remove ARP table entries older than ARP_TABLE_TIMEOUT."""

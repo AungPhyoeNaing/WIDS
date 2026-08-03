@@ -14,15 +14,17 @@ class SerialReader:
         try:
             self.serial = serial.Serial(port, baudrate, timeout=2)
             self.serial.reset_input_buffer()
-            time.sleep(0.5)
-            initial_line = self.serial.readline().decode('utf-8', errors='ignore').strip()
-            if not initial_line:
-                self.serial.close()
-                self.serial = None
-                print(f"No serial data received on {port}")
-                return False
+            time.sleep(0.3)
+            # Non-fatal initial check
+            try:
+                initial_line = self.serial.readline().decode('utf-8', errors='ignore').strip()
+                if initial_line:
+                    print(f"Serial data received on {port}: {initial_line[:120]}")
+                else:
+                    print(f"Port {port} connected (waiting for serial data stream...)")
+            except Exception:
+                print(f"Port {port} connected")
 
-            print(f"Serial data received on {port}: {initial_line[:120]}")
             self.running = True
             self.thread = threading.Thread(target=self.read_loop, daemon=True)
             self.thread.start()

@@ -79,6 +79,44 @@ class DeauthAlertTests(unittest.TestCase):
         self.assertIn("details", alert)
         self.assertIn("score", alert)
 
+    def test_high_volume_deauth_flood_rate_limiting(self):
+        app = self._make_app()
+        packet = {
+            "mac_src": "AA:BB:CC:DD:EE:FF",
+            "mac_dst": "FF:FF:FF:FF:FF:FF",
+            "bssid": "11:22:33:44:55:66",
+            "subtype": "Deauthentication",
+        }
+        # Simulate a burst of 500 deauth packets
+        for _ in range(500):
+            App._handle_deauth_packet(app, packet)
+
+        # Should deduplicate into a single alert card with updated seen_count
+        self.assertEqual(len(app.alerts_list), 1)
+        self.assertEqual(app.alert_count, 1)
+        alert = app.alerts_list[0]
+        self.assertEqual(alert["seen_count"], 500)
+
+    def test_evil_twin_detection_rogue_bssid(self):
+        app = App.__new__(App)
+        app.ssid_to_bssid = {"TargetWiFi": {"11:22:33:44:55:66"}}
+        app.bssid_last_seen = {"11:22:33:44:55:66": time.time() - 30} # Seen 30s ago (exceeded 15s)
+        app.bssid_channel = {"11:22:33:44:55:66": 6}
+        app.bssid_rssi = {"11:22:33:44:55:66": deque([-50])}
+        app.target_ssid = "TargetWiFi"
+        app.whitelist = {}
+        app.ROUTER_OUIS = set()
+        app.LAPTOP_NIC_OUIS = set()
+        app.OUI_DATABASE = {}
+
+        # Rogue AP appears (airbase-ng / hostapd with local admin MAC)
+        rogue_bssid = "02:00:00:11:22:33"
+        score, reasons = app._score_evil_twin("TargetWiFi", rogue_bssid, 11, -75)
+
+        # Baseline score: BSSID conflict (+50), Channel mismatch (+20), RSSI anomaly (+20), Locally Admin MAC (+30) = 100
+        self.assertGreaterEqual(score, 70)
+        self.assertGreater(len(reasons), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

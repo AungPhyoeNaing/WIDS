@@ -94,6 +94,18 @@ void setup() {
     Serial.println("{\"log\": \"ESP32 Sniffer initialized. Waiting for packets...\"}");
 }
 
+// Helper to escape double quotes and backslashes in JSON strings
+void escape_json_string(const char* src, char* dst, size_t max_len) {
+    size_t j = 0;
+    for (size_t i = 0; src[i] != '\0' && j < max_len - 2; i++) {
+        if (src[i] == '"' || src[i] == '\\') {
+            dst[j++] = '\\';
+        }
+        dst[j++] = src[i];
+    }
+    dst[j] = '\0';
+}
+
 void loop() {
     // 1. Check if we need to hop channels
     if (millis() - lastHopTime > CHANNEL_HOP_INTERVAL) {
@@ -129,13 +141,16 @@ void loop() {
             case 15: subtypeStr = "Reserved (15)"; break;
         }
 
+        char escapedSsid[65];
+        escape_json_string(p.ssid, escapedSsid, sizeof(escapedSsid));
+
         // Print JSON to Serial (This is safe to do in the main loop)
         Serial.printf("{\"timestamp\": %lu, \"rssi\": %d, \"channel\": %d, \"mac_src\": \"%02X:%02X:%02X:%02X:%02X:%02X\", \"mac_dst\": \"%02X:%02X:%02X:%02X:%02X:%02X\", \"bssid\": \"%02X:%02X:%02X:%02X:%02X:%02X\", \"type\": \"Management\", \"subtype\": \"%s\", \"ssid\": \"%s\"}\n",
                       p.timestamp, p.rssi, p.channel, 
                       p.macSrc[0], p.macSrc[1], p.macSrc[2], p.macSrc[3], p.macSrc[4], p.macSrc[5],
                       p.macDst[0], p.macDst[1], p.macDst[2], p.macDst[3], p.macDst[4], p.macDst[5],
                       p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5],
-                      subtypeStr, p.ssid);
+                      subtypeStr, escapedSsid);
                       
         packetsProcessed++;
     }

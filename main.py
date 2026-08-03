@@ -33,7 +33,7 @@ class Controller:
         # Log gateway info at startup
         gw_info = self.gateway_resolver.get_gateway_info()
         if gw_info["gateway_ip"]:
-            print(f"🌐 Gateway: {gw_info['gateway_ip']} -> {gw_info['gateway_mac']}")
+            print(f"[+] Gateway: {gw_info['gateway_ip']} -> {gw_info['gateway_mac']}")
             print(f"   Vendor: {gw_info['vendor']} ({gw_info['vendor_category']})")
             print(f"   Confidence: {gw_info['confidence']}")
 

@@ -51,7 +51,7 @@ class App(ctk.CTk):
         self.alerts_list = [] # Store triggered alerts
         self.last_eviltwin_alert_time = {} # BSSID -> timestamp
         self.last_eviltwin_audio_time = {} # (ssid, rogue_mac) -> timestamp
-        self.eviltwin_alert_index = {} # (ssid, rogue_mac) -> index in alerts_list
+        self.eviltwin_alert_map = {} # (ssid, rogue_mac) -> alert dict
         self.bssid_last_seen = {} # BSSID -> timestamp of last packet
         self.last_bssid_cleanup_time = 0 # timestamp of last cleanup
         self.deauth_history = {} # target_mac -> deque of timestamps
@@ -67,9 +67,10 @@ class App(ctk.CTk):
         # Deauthentication detector
         self.deauth_detector = DeauthDetector()
         self._sync_deauth_whitelist()
+        self.deauth_alert_map = {} # (src, bssid, victim) -> alert dict
 
         self.packet_queue = queue.Queue()
-        self.update_interval = 500 # ms
+        self.update_interval = 100 # ms
         
         self.create_sidebar()
         self.create_main_content()
@@ -377,7 +378,8 @@ class App(ctk.CTk):
 
         current_time = time.time()
         bssid_last_seen = getattr(self, 'bssid_last_seen', {})
-        known_bssids = {b for b in self.ssid_to_bssid.get(ssid, set()) if current_time - bssid_last_seen.get(b, 0) < 15} - {bssid}
+        # Look back up to 10 minutes (600s) so legitimate APs are not forgotten during deauth jamming
+        known_bssids = {b for b in self.ssid_to_bssid.get(ssid, set()) if current_time - bssid_last_seen.get(b, 0) < 600} - {bssid}
         if not known_bssids:
             return 0, []
 
@@ -606,6 +608,14 @@ class App(ctk.CTk):
 
     def _play_alert_sound(self, message="Alert Detected"):
         try:
+            now = time.time()
+            # Audio debouncing: limit audio playback to once every 5 seconds per category
+            if not hasattr(self, "_last_audio_play_time"):
+                self._last_audio_play_time = {}
+            if now - self._last_audio_play_time.get(message, 0) < 5:
+                return
+            self._last_audio_play_time[message] = now
+
             import ctypes, os
             
             # Map the message to the corresponding pre-recorded Jarvis mp3 file
@@ -673,21 +683,47 @@ class App(ctk.CTk):
                 severity = "Low"
 
             reasons_str = " | ".join(alert.get("reasons", []))
+            src_mac = alert.get("source", "Unknown")
+            victim_mac = alert.get("victim", "Unknown")
+            bssid_mac = alert.get("bssid", "Unknown")
+            deauth_key = (src_mac, bssid_mac, victim_mac)
 
-            self._add_alert({
-                "time": alert.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-                "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "type": f"Deauth Attack [{severity}]",
-                "severity": severity,
-                "target_mac": alert.get("victim", "Unknown"),
-                "source_mac": alert.get("source", "Unknown"),
-                "bssid": alert.get("bssid", "Unknown"),
-                "deauth_count": self.deauth_count,
-                "details": reasons_str,
-                "score": score,
-                "reasons": alert.get("reasons", []),
-                "seen_count": 1,
-            })
+            if not hasattr(self, 'deauth_alert_map'):
+                self.deauth_alert_map = {}
+            if not hasattr(self, 'deauth_alert_cooldown'):
+                self.deauth_alert_cooldown = {}
+
+            now = time.time()
+            if deauth_key in self.deauth_alert_map:
+                existing_alert = self.deauth_alert_map[deauth_key]
+                existing_alert["seen_count"] = existing_alert.get("seen_count", 1) + 1
+                existing_alert["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                existing_alert["score"] = max(existing_alert.get("score", 0), score)
+                existing_alert["details"] = reasons_str
+                existing_alert["deauth_count"] = self.deauth_count
+                
+                # Audio debouncing check
+                if now - self.deauth_alert_cooldown.get(deauth_key, 0) >= 5:
+                    self.deauth_alert_cooldown[deauth_key] = now
+                    self._play_alert_sound("Deauth Attack Detected")
+            else:
+                self.deauth_alert_cooldown[deauth_key] = now
+                new_alert = {
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": f"Deauth Attack [{severity}]",
+                    "severity": severity,
+                    "target_mac": victim_mac,
+                    "source_mac": src_mac,
+                    "bssid": bssid_mac,
+                    "deauth_count": self.deauth_count,
+                    "details": reasons_str,
+                    "score": score,
+                    "reasons": alert.get("reasons", []),
+                    "seen_count": 1,
+                }
+                self._add_alert(new_alert)
+                self.deauth_alert_map[deauth_key] = new_alert
 
     def _find_serial_ports(self):
         try:
@@ -696,7 +732,7 @@ class App(ctk.CTk):
             return []
 
     def _try_auto_connect_serial(self):
-        if self.is_connected:
+        if self.is_connected or getattr(self, "_connecting_in_progress", False):
             return
 
         baud_text = self.baud_entry.get().strip() or "115200"
@@ -710,20 +746,33 @@ class App(ctk.CTk):
         if not ports:
             return
 
-        for port in ports:
-            self.status_label.configure(text=f"● Trying {port}...", text_color="#f59e0b")
-            success = self.start_serial_cb(port, baud)
-            if success:
-                self.com_port_entry.delete(0, tk.END)
-                self.com_port_entry.insert(0, port)
-                self.is_connected = True
-                self.connect_btn.configure(text="DISCONNECT", fg_color="#ef4444", hover_color="#dc2626")
-                self.status_label.configure(text=f"● Connected to {port}", text_color="#10b981")
-                self._play_alert_sound("Greeting")
-                return
+        self._connecting_in_progress = True
 
-        self.status_label.configure(text="● Auto-connect failed", text_color="#ef4444")
-        self.after(5000, self._try_auto_connect_serial)
+        def _bg_connect():
+            connected_port = None
+            for port in ports:
+                self.after(0, lambda p=port: self.status_label.configure(text=f"● Trying {p}...", text_color="#f59e0b"))
+                success = self.start_serial_cb(port, baud)
+                if success:
+                    connected_port = port
+                    break
+
+            def _on_finish():
+                self._connecting_in_progress = False
+                if connected_port:
+                    self.com_port_entry.delete(0, tk.END)
+                    self.com_port_entry.insert(0, connected_port)
+                    self.is_connected = True
+                    self.connect_btn.configure(text="DISCONNECT", fg_color="#ef4444", hover_color="#dc2626")
+                    self.status_label.configure(text=f"● Connected to {connected_port}", text_color="#10b981")
+                    self._play_alert_sound("Greeting")
+                else:
+                    self.status_label.configure(text="● Disconnected", text_color="#ef4444")
+
+            self.after(0, _on_finish)
+
+        import threading
+        threading.Thread(target=_bg_connect, daemon=True).start()
 
     def toggle_connection(self):
         if not self.is_connected:
@@ -831,14 +880,21 @@ class App(ctk.CTk):
 
     def process_packet_queue(self):
         packets_to_insert = []
+        qsize = self.packet_queue.qsize()
+        # Flow control: if queue is overflowing (>1000 items), drop non-essential frames to maintain responsiveness
+        high_load = qsize > 1000
+        
         try:
-            # Process up to 100 packets per batch to keep the stream readable
-            for _ in range(100):
+            # Drain up to 200 packets per batch
+            for _ in range(200):
                 packet = self.packet_queue.get_nowait()
                 
                 self.total_packets += 1
                 subtype = packet.get('subtype', '')
                 
+                if high_load and subtype in ("Beacon", "Probe Request") and not packet.get('is_evil_twin'):
+                    continue
+
                 if subtype == "Deauthentication":
                     self._handle_deauth_packet(packet)
                         
@@ -855,7 +911,8 @@ class App(ctk.CTk):
                 current_time = time.time()
                 if current_time - getattr(self, 'last_bssid_cleanup_time', 0) > 10:
                     self.last_bssid_cleanup_time = current_time
-                    stale_bssids = [b for b, t in getattr(self, 'bssid_last_seen', {}).items() if current_time - t > 120]
+                    # Retain known BSSIDs for 1 hour (3600s) so APs are not forgotten during attacks
+                    stale_bssids = [b for b, t in getattr(self, 'bssid_last_seen', {}).items() if current_time - t > 3600]
                     for stale_b in stale_bssids:
                         self.bssid_last_seen.pop(stale_b, None)
                         self.bssid_channel.pop(stale_b, None)
@@ -881,6 +938,7 @@ class App(ctk.CTk):
                         self.bssid_first_seen[bssid] = current_time
                     
                     # Track channel and RSSI history per BSSID
+                    prev_channel = self.bssid_channel.get(bssid)
                     if channel:
                         self.bssid_channel[bssid] = int(channel)
                     if rssi is not None:
@@ -898,17 +956,12 @@ class App(ctk.CTk):
                     
                     self.bssid_seen_count[bssid] = self.bssid_seen_count.get(bssid, 0) + 1
                     
-                    # ── Gate 0: Skip if not target network ───────────────
-                    if self.target_ssid and ssid != self.target_ssid:
-                        pass # Ignore for Evil Twin detection if it's not our target network
-                        
                     # ── Gate 1: Skip if this BSSID is whitelisted ───────────────
-                    elif bssid in self.whitelist.get(ssid, set()):
+                    if bssid in self.whitelist.get(ssid, set()):
                         pass  # Trusted — skip Evil Twin analysis
                     
-                    # ── Gate 2: Minimum sightings before flagging ───
-                    elif len(self.ssid_to_bssid[ssid]) > 1 and \
-                         self.bssid_seen_count.get(bssid, 0) >= (10 if len(self.ssid_to_bssid[ssid]) >= 4 else 3):
+                    # ── Gate 2: Flag immediately on BSSID conflict ───
+                    elif len(self.ssid_to_bssid[ssid]) > 1:
                         
                         score, reasons = self._score_evil_twin(ssid, bssid, channel, rssi)
                         
@@ -954,20 +1007,18 @@ class App(ctk.CTk):
                                 rogue_reason_str = "; ".join(rogue_reasons) if rogue_reasons else "No strong indicators — treat as suspicious"
                                 alert_key = (ssid, rogue_mac)
                                 
-                                if alert_key in self.eviltwin_alert_index:
-                                    # Update existing alert count instead of adding a new card
-                                    idx = self.eviltwin_alert_index[alert_key]
-                                    if idx < len(self.alerts_list):
-                                        self.alerts_list[idx]["seen_count"] = \
-                                            self.alerts_list[idx].get("seen_count", 1) + 1
-                                        self.alerts_list[idx]["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                        self.alerts_list[idx]["score"] = score
-                                        self.alerts_list[idx]["type"] = f"Evil Twin [{confidence_label} {score}%]"
-                                        self.alerts_list[idx]["severity"] = severity
-                                        
-                                        if current_time - self.last_eviltwin_audio_time.get(alert_key, 0) >= 60:
-                                            self._play_alert_sound("Evil Twin Wifi Detected")
-                                            self.last_eviltwin_audio_time[alert_key] = current_time
+                                if alert_key in self.eviltwin_alert_map:
+                                    # Update existing alert dict directly instead of index lookup
+                                    existing_alert = self.eviltwin_alert_map[alert_key]
+                                    existing_alert["seen_count"] = existing_alert.get("seen_count", 1) + 1
+                                    existing_alert["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    existing_alert["score"] = score
+                                    existing_alert["type"] = f"Evil Twin [{confidence_label} {score}%]"
+                                    existing_alert["severity"] = severity
+                                    
+                                    if current_time - self.last_eviltwin_audio_time.get(alert_key, 0) >= 60:
+                                        self._play_alert_sound("Evil Twin Wifi Detected")
+                                        self.last_eviltwin_audio_time[alert_key] = current_time
                                 else:
                                     self.alert_count += 1
                                     self._play_alert_sound("Evil Twin Wifi Detected")
@@ -988,11 +1039,58 @@ class App(ctk.CTk):
                                         "all_bssids": list(self.ssid_to_bssid.get(ssid, set()))
                                     }
                                     self.alerts_list.append(new_alert)
-                                    self.eviltwin_alert_index[alert_key] = len(self.alerts_list) - 1
+                                    self.eviltwin_alert_map[alert_key] = new_alert
                                     if len(self.alerts_list) > 2000:
-                                        self.alerts_list.pop(0)
+                                        popped = self.alerts_list.pop(0)
+                                        p_key = (popped.get("ssid"), popped.get("rogue_mac"))
+                                        if p_key in self.eviltwin_alert_map and self.eviltwin_alert_map[p_key] is popped:
+                                            del self.eviltwin_alert_map[p_key]
                                 
                                 self.last_eviltwin_alert_time[bssid] = current_time
+
+                    # ── Gate 3: Single-BSSID Channel Mismatch (Spoofed MAC Rogue AP) ───
+                    elif channel and prev_channel and int(channel) != prev_channel:
+                        score = 85
+                        confidence_label = "HIGH"
+                        severity = "Critical"
+                        tag = "eviltwin_high"
+                        reason_str = f"BSSID '{bssid}' broadcasting on conflicting channels (original: Ch {prev_channel}, current: Ch {channel}) — MAC Spoofed Rogue AP"
+                        alert_key = (ssid, bssid)
+                        
+                        packet['is_evil_twin'] = True
+                        packet['et_confidence'] = confidence_label
+                        packet['et_tag'] = tag
+                        packet['et_rogue_mac'] = bssid
+                        packet['et_legit_mac'] = bssid
+                        packet['et_is_mesh'] = False
+
+                        current_time = time.time()
+                        if current_time - self.last_eviltwin_alert_time.get(bssid, 0) >= 10:
+                            if alert_key in self.eviltwin_alert_map:
+                                existing_alert = self.eviltwin_alert_map[alert_key]
+                                existing_alert["seen_count"] = existing_alert.get("seen_count", 1) + 1
+                                existing_alert["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            else:
+                                self.alert_count += 1
+                                self._play_alert_sound("Evil Twin Wifi Detected")
+                                new_alert = {
+                                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "type": f"Evil Twin (Spoofed MAC) [{confidence_label} 85%]",
+                                    "severity": severity,
+                                    "ssid": ssid,
+                                    "rogue_mac": bssid,
+                                    "legit_mac": bssid,
+                                    "details": reason_str,
+                                    "rogue_why": "BSSID is transmitting on multiple channels simultaneously (MAC spoofing attack)",
+                                    "is_mesh": False,
+                                    "seen_count": 1,
+                                    "score": 85,
+                                    "all_bssids": [bssid]
+                                }
+                                self.alerts_list.append(new_alert)
+                                self.eviltwin_alert_map[alert_key] = new_alert
+                            self.last_eviltwin_alert_time[bssid] = current_time
                     
                 # ─── ARP SPOOF DETECTION ───────────────────────────────────────
                 packet_type = packet.get('type', '')
@@ -1099,7 +1197,8 @@ class App(ctk.CTk):
             self.stat_deauth.configure(text=str(self.deauth_count))
             self.stat_alerts.configure(text=str(self.alert_count))
             
-            for packet in packets_to_insert:
+            # Limit GUI Treeview insertions to 50 items per update tick to prevent Tkinter freezes
+            for packet in packets_to_insert[:50]:
                 subtype = packet.get('subtype', '')
                 packet_type = packet.get('type', '')
                 tags = ()

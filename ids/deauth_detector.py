@@ -30,6 +30,31 @@ class DeauthDetector:
         self.timing_history = defaultdict(list)
         self.reason_counter = defaultdict(list)
         self.alert_cache = {}
+        self._last_log_time = {}
+        self._last_cleanup_time = 0
+
+    def _cleanup_stale_data(self, now):
+        """Prune historical state to prevent memory leaks during flood attacks."""
+        if now - self._last_cleanup_time < 10:
+            return
+        self._last_cleanup_time = now
+
+        # Prune attack_times older than 60s
+        for src in list(self.attack_times.keys()):
+            self.attack_times[src] = [t for t in self.attack_times[src] if now - t <= 60]
+            if not self.attack_times[src]:
+                del self.attack_times[src]
+
+        # Limit reason_counter length
+        for src in list(self.reason_counter.keys()):
+            if len(self.reason_counter[src]) > 20:
+                self.reason_counter[src] = self.reason_counter[src][-20:]
+
+        # Prune timing_history older than 60s
+        for src in list(self.timing_history.keys()):
+            self.timing_history[src] = [t for t in self.timing_history[src] if now - t <= 60]
+            if not self.timing_history[src]:
+                del self.timing_history[src]
 
     def process(self, packet):
         """
@@ -54,6 +79,8 @@ class DeauthDetector:
 
         if not packet.get("subtype") == "Deauthentication":
             return None
+
+        self._cleanup_stale_data(now)
 
         score = 0
         reasons = []
@@ -161,6 +188,13 @@ class DeauthDetector:
         return None
 
     def generate_alert(self, alert):
+        now = time.time()
+        key = (alert.get("source"), alert.get("bssid"))
+        # Rate limit file logging to once every 5 seconds per (source, bssid)
+        if now - self._last_log_time.get(key, 0) < 5:
+            return
+        self._last_log_time[key] = now
+
         message = "\n"
         message += "=" * 55 + "\n"
         message += "DEAUTHENTICATION ATTACK DETECTED\n"

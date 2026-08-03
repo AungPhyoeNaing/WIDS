@@ -30,7 +30,6 @@ OUI_DATABASE = {
     "50:C7:BF": ("TP-Link", "network_equipment"),
     "54:C8:0F": ("TP-Link", "network_equipment"),
     "60:32:B1": ("TP-Link", "network_equipment"),
-    "78:8A:20": ("TP-Link", "network_equipment"),
     "98:DA:C4": ("TP-Link", "network_equipment"),
     "B0:BE:76": ("TP-Link", "network_equipment"),
     "C0:06:C3": ("TP-Link", "network_equipment"),
