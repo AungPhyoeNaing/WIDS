@@ -1,50 +1,54 @@
 # TABLE OF CONTENTS
 
-| | Page |
-|---|---:|
-| ACKNOWLEDGEMENT | i |
-| ABSTRACT | ii |
-| TABLE OF CONTENTS | iii |
-| LIST OF FIGURES | v |
-
-**CHAPTER 1: INTRODUCTION**
-1.1. Introduction to the System .............................................................. 1
-1.2. Aim and Objectives .......................................................................... 2
-1.3. Scopes of the Project ....................................................................... 2
-1.4. Outlines of the Project ..................................................................... 3
-
-**CHAPTER 2: BACKGROUND THEORY**
-2.1. Background Theory ......................................................................... 4
-2.2. Wireless Networks (IEEE 802.11) ..................................................... 4
-2.3. Wireless Intrusion Detection Systems (WIDS) ................................. 5
-2.4. Network Attacks and Vulnerabilities ................................................ 6
-&nbsp;&nbsp;&nbsp;&nbsp;2.4.1. ARP Spoofing Attacks ........................................................... 6
-&nbsp;&nbsp;&nbsp;&nbsp;2.4.2. Deauthentication Attacks ...................................................... 7
-2.5. Microcontrollers in Network Security ................................................ 8
-&nbsp;&nbsp;&nbsp;&nbsp;2.5.1. ESP32 Architecture .............................................................. 8
-&nbsp;&nbsp;&nbsp;&nbsp;2.5.2. Serial Communication (UART) ............................................. 9
-2.6. Summary .......................................................................................... 10
-
-**CHAPTER 3: DESIGN AND IMPLEMENTATION**
-3.1. Project Plan ..................................................................................... 11
-3.2. System Architecture Design ............................................................. 12
-3.3. Hardware Implementation ................................................................ 13
-&nbsp;&nbsp;&nbsp;&nbsp;3.3.1. ESP32 Promiscuous Mode Setup ........................................ 13
-&nbsp;&nbsp;&nbsp;&nbsp;3.3.2. Firmware Programming (C++/Arduino) ............................... 14
-3.4. Software Implementation .................................................................. 15
-&nbsp;&nbsp;&nbsp;&nbsp;3.4.1. Application Flow and Entry Point (`main.py`) ..................... 15
-&nbsp;&nbsp;&nbsp;&nbsp;3.4.2. Intrusion Detection Engine (`ids/`) ...................................... 16
-&nbsp;&nbsp;&nbsp;&nbsp;3.4.3. Graphical User Interface (`gui/`) .......................................... 18
-3.5. Equipment and Software List ........................................................... 20
-&nbsp;&nbsp;&nbsp;&nbsp;3.5.1. Hardware Requirements (ESP32, Cabling) ......................... 20
-&nbsp;&nbsp;&nbsp;&nbsp;3.5.2. Python Libraries (CustomTkinter, Scapy) ........................... 21
-3.6. System Integration and Testing ........................................................ 23
-&nbsp;&nbsp;&nbsp;&nbsp;3.6.1. Hardware-Software Integration ............................................ 23
-&nbsp;&nbsp;&nbsp;&nbsp;3.6.2. Simulated Attack Testing ...................................................... 24
-3.7. Summary .......................................................................................... 26
-
-**CHAPTER 4: CONCLUSION AND FURTHER EXTENSIONS**
-4.1. Conclusion ........................................................................................ 27
-4.2. Further Extensions ............................................................................ 28
-
-REFERENCES ....................................................................................... 29
+| SECTION | TITLE | PAGE |
+| :--- | :--- | :---: |
+| | **ACKNOWLEDGEMENT** | i |
+| | **ABSTRACT** | ii |
+| | **TABLE OF CONTENTS** | iii |
+| | **LIST OF FIGURES** | v |
+| | | |
+| **CHAPTER 1** | **INTRODUCTION** | |
+| 1.1 | Introduction to the WIDS System | 1 |
+| 1.2 | Aim and Objectives | 2 |
+| 1.3 | Scopes of the Project | 2 |
+| 1.4 | Outlines of the Project | 3 |
+| | | |
+| **CHAPTER 2** | **BACKGROUND THEORY** | |
+| 2.1 | Background Theory | 4 |
+| 2.2 | Wireless Networks (IEEE 802.11) and Protocols | 4 |
+| 2.2.1 | Wireless Network | 4 |
+| 2.2.2 | WPA2 | 5 |
+| 2.2.3 | 802.11 Frames | 5 |
+| 2.2.4 | ARP Protocol | 6 |
+| 2.2.5 | MAC Address and IP Address | 6 |
+| 2.2.6 | SSID and BSSID | 7 |
+| 2.3 | Network Attacks and Vulnerabilities | 7 |
+| 2.3.1 | Evil Twin Attack | 7 |
+| 2.3.2 | Deauthentication Attack | 8 |
+| 2.3.3 | ARP Spoofing (MAC Spoofing) | 9 |
+| 2.4 | Microcontroller in Network Security (ESP32) | 10 |
+| 2.5 | Summary | 11 |
+| | | |
+| **CHAPTER 3** | **DESIGN AND IMPLEMENTATION** | |
+| 3.1 | Project Design Plan | 12 |
+| 3.1.1 | Overview of System Components | 12 |
+| 3.1.2 | Software Architecture (MVC Pattern) | 13 |
+| 3.1.3 | Threat Whitelisting and Network Resolution | 14 |
+| 3.2 | Hardware Setup | 15 |
+| 3.2.1 | ESP32 Sniffer Circuit and Connection | 15 |
+| 3.2.2 | Enabling Promiscuous Mode | 16 |
+| 3.2.3 | Serial Transmission and JSON Serialization | 17 |
+| 3.3 | Software Implementation | 18 |
+| 3.3.1 | Multithreaded Serial Reader | 18 |
+| 3.3.2 | ARP Sniffer and Gateway Resolution | 19 |
+| 3.3.3 | OUI Lookup and MAC Identification | 20 |
+| 3.3.4 | Graphical User Interface | 21 |
+| 3.3.5 | User (Non-technician) vs. Technician Views | 22 |
+| 3.3.6 | Notification Alerts and JARVIS Audio Alarm | 23 |
+| 3.4 | Summary | 24 |
+| | | |
+| **CHAPTER 4** | **CONCLUSION AND FURTHER EXTENSIONS** | |
+| 4.1 | Conclusion | 25 |
+| 4.2 | Further Extensions | 26 |
+| | | |
+| | **REFERENCES** | 27 |

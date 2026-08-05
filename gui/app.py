@@ -19,7 +19,7 @@ from ids import config as ids_config
 
 
 class App(ctk.CTk):
-    def __init__(self, start_serial_cb, stop_serial_cb):
+    def __init__(self, start_serial_cb, stop_serial_cb, send_serial_cmd_cb=None):
         super().__init__()
         
         self.title("WIDS - Dashboard")
@@ -31,6 +31,7 @@ class App(ctk.CTk):
         
         self.start_serial_cb = start_serial_cb
         self.stop_serial_cb = stop_serial_cb
+        self.send_serial_cmd_cb = send_serial_cmd_cb
         
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -172,6 +173,17 @@ class App(ctk.CTk):
         )
         self.view_alerts_btn.grid(row=5, column=0, padx=20, pady=(10, 10), sticky="ew")
 
+        # Desktop Audio Mute toggle button
+        self.mute_laptop_audio = False
+        self.mute_desktop_btn = ctk.CTkButton(
+            self.sidebar_frame, text="🔊 PC Sound: ON", height=35,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=ThemeManager.get("bg_elevated"), text_color=ThemeManager.get("text_main"),
+            hover_color=ThemeManager.get("primary_hover"),
+            command=self.toggle_desktop_mute
+        )
+        self.mute_desktop_btn.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="ew")
+
         # Theme toggle button
         toggle_text = "☀️ Light Mode" if ThemeManager.is_dark() else "🌙 Dark Mode"
         self.theme_toggle_btn = ctk.CTkButton(
@@ -181,7 +193,7 @@ class App(ctk.CTk):
             hover_color=ThemeManager.get("bg_elevated"),
             command=self.toggle_theme
         )
-        self.theme_toggle_btn.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="s")
+        self.theme_toggle_btn.grid(row=7, column=0, padx=20, pady=(0, 10), sticky="s")
 
         self.switch_view_btn = ctk.CTkButton(
             self.sidebar_frame, text="\U0001F464  Switch to User View", height=40,
@@ -189,7 +201,14 @@ class App(ctk.CTk):
             fg_color=ThemeManager.get("accent"), hover_color=ThemeManager.get("accent_hover"),
             command=self.toggle_view
         )
-        self.switch_view_btn.grid(row=7, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.switch_view_btn.grid(row=8, column=0, padx=20, pady=(0, 20), sticky="ew")
+
+    def toggle_desktop_mute(self):
+        self.mute_laptop_audio = not getattr(self, "mute_laptop_audio", False)
+        if self.mute_laptop_audio:
+            self.mute_desktop_btn.configure(text="🔇 PC Sound: MUTED", fg_color=ThemeManager.get("danger"))
+        else:
+            self.mute_desktop_btn.configure(text="🔊 PC Sound: ON", fg_color=ThemeManager.get("bg_elevated"))
 
     def create_main_content(self):
         self.main_frame = ctk.CTkFrame(self, fg_color=ThemeManager.get("bg_root"), corner_radius=0)
@@ -649,18 +668,29 @@ class App(ctk.CTk):
 
             # Map the message to the corresponding pre-recorded Jarvis mp3 file
             audio_file = None
+            track = None
             if "Evil Twin" in message:
                 audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-32-Warning-!!-Evil-twin-wifi-detected!!.mp3")
+                track = "evil_twin"
             elif "ARP Spoofing" in message:
                 audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-34-Warning-!!-MAC-Spoofing-detected-,-Sir!!!.mp3")
+                track = "mac_spoof"
             elif "Deauth" in message:
                 audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-35-Warning-!!-Deauth-Attack-Frames-has-been-found-,.mp3")
+                track = "deauth"
             elif "Greeting" in message:
                 audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-40-Hello-,-Sir-,-Our-Intrusion-Detection-System-is.mp3")
+                track = "greeting"
             elif "Unacknowledged" in message:
                 audio_file = os.path.join(_audio_dir, "Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-56-Sir-!!-please-check-the-alerts-history-carefully.mp3")
+                track = "history"
+
+            # Trigger hardware ESP32 speaker
+            if track and getattr(self, "send_serial_cmd_cb", None):
+                self.send_serial_cmd_cb({"cmd": "play", "track": track})
             
-            if audio_file and os.path.exists(audio_file):
+            # Play on PC sound card unless PC sound is muted by the user
+            if not getattr(self, "mute_laptop_audio", False) and audio_file and os.path.exists(audio_file):
                 path = os.path.abspath(audio_file)
                 
                 # Get short path to prevent MCI path parsing errors with spaces/special characters

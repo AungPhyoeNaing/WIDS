@@ -25,7 +25,7 @@ class Controller:
         
         # Initialize app BEFORE starting the sniffers to avoid AttributeError
         # if a packet is received immediately
-        self.app = App(self.start_serial, self.stop_serial)
+        self.app = App(self.start_serial, self.stop_serial, self.send_serial_command)
 
         self.arp_sniffer.start()
 
@@ -44,6 +44,9 @@ class Controller:
 
     def stop_serial(self):
         self.serial_reader.disconnect()
+
+    def send_serial_command(self, cmd_dict):
+        return self.serial_reader.send_command(cmd_dict)
 
     def on_packet_received(self, packet):
         # Feed ESP32 Beacon BSSIDs to the gateway resolver for cross-referencing

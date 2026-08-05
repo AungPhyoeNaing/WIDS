@@ -1,60 +1,57 @@
+iii
+
 TABLE OF CONTENTS
 
-                                                             Page
-ACKNOWLEDGEMENT .............................................. i
-ABSTRACT ..................................................... ii
-TABLE OF CONTENTS ............................................ iii
-LIST OF FIGURES .............................................. v
-LIST OF TABLES ............................................... vi
+Page
+ACKNOWLEDGEMENT ................................................................ i
+ABSTRACT ....................................................................... ii
+TABLE OF CONTENTS .............................................................. iii
+LIST OF FIGURES ................................................................ v
 
-CHAPTER 1: INTRODUCTION
-1.1. Introduction to Sentinel WIDS ........................... 1
-1.2. Aim and Objectives ...................................... 2
-1.3. Scopes of the Project ................................... 3
-1.4. Outlines of the Project ................................. 4
+CHAPTER   TITLE
 
-CHAPTER 2: BACKGROUND THEORY
-2.1. Wireless Networks (IEEE 802.11) and Protocols ........... 5
-2.2. Network Attacks and Vulnerabilities ..................... 7
-    2.2.1. Evil Twin Attacks ................................. 7
-    2.2.2. Deauthentication Attacks .......................... 9
-    2.2.3. ARP Spoofing (MAC Spoofing) ....................... 10
-2.3. Microcontrollers in Network Security (ESP32) ............ 12
-2.4. Summary ................................................. 13
+1.        INTRODUCTION
+1.1.      Introduction to the WIDS System ...................................... 1
+1.2.      Aim and Objectives ................................................... 2
+1.3.      Scopes of the Project ................................................ 2
+1.4.      Outlines of the Project .............................................. 3
 
-CHAPTER 3: DESIGN AND IMPLEMENTATION
-3.1. Project Design Plan ..................................... 14
-    3.1.1. Overview of System Components ..................... 15
-    3.1.2. Software Architecture (MVC Pattern) ............... 16
-    3.1.3. Threat Whitelisting and Network Resolution ........ 18
-3.2. Hardware Setup .......................................... 19
-    3.2.1. ESP32 Sniffer Circuit and Connection .............. 20
-    3.2.2. Enabling Promiscuous Mode ......................... 22
-    3.2.3. Serial Transmission and JSON Serialization ........ 24
-3.3. Software Implementation ................................. 26
-    3.3.1. Multithreaded Serial Reader (ids/) ................ 27
-    3.3.2. ARP Sniffer and Gateway Resolution ................ 29
-    3.3.3. OUI Lookup and MAC Identification ................. 31
-    3.3.4. Graphical User Interface (gui/app.py) ............. 32
-    3.3.5. Standard User View vs. Admin Views ................ 34
-    3.3.6. Alerting and J.A.R.V.I.S Audio Notifications ...... 35
-3.4. Summary ................................................. 37
+2.        BACKGROUND THEORY
+2.1.      Background Theory .................................................... 4
+2.2.      Wireless Networks (IEEE 802.11) and Protocols ........................ 4
+2.2.1.    Wireless Network ..................................................... 4
+2.2.2.    WPA2 ................................................................. 5
+2.2.3.    802.11 Frames ........................................................ 5
+2.2.4.    ARP Protocol ......................................................... 6
+2.2.5.    MAC Address and IP Address ........................................... 6
+2.2.6.    SSID and BSSID ....................................................... 7
+2.3.      Network Attacks and Vulnerabilities .................                  7
+2.3.1.    Evil Twin Attack ..................................................... 7
+2.3.2.    Deauthentication Attack .............................................. 8
+2.3.3.    ARP Spoofing (MAC Spoofing) .................                         9
+2.4.      Microcontroller in Network Security (ESP32) .......................... 10
+2.5.      Summary .............................................................. 11
 
-CHAPTER 4: TESTING AND EVALUATION
-4.1. Automated Unit Testing .................................. 38
-    4.1.1. Gateway Resolver Tests ............................ 38
-    4.1.2. ARP Sniffer Mock Tests ............................ 39
-    4.1.3. Alerts Generation Tests ........................... 40
-4.2. Functional and Simulated Attack Testing ................. 41
-    4.2.1. Validating Evil Twin Detection .................... 41
-    4.2.2. Validating Deauthentication Recognition ........... 42
-4.3. Performance Evaluation .................................. 44
-4.4. Summary ................................................. 45
+3.        DESIGN AND IMPLEMENTATION
+3.1.      Project Design Plan .................................................. 12
+3.1.1.    Overview of System Components ........................................ 12
+3.1.2.    Software Architecture (MVC Pattern) .................................. 13
+3.1.3.    Threat Whitelisting and Network Resolution ........................... 14
+3.2.      Hardware Setup ....................................................... 15
+3.2.1.    ESP32 Sniffer Circuit and Connection ................................ 15
+3.2.2.    Enabling Promiscuous Mode ............................................ 16
+3.2.3.    Serial Transmission and JSON Serialization ........................... 17
+3.3.      Software Implementation .............................................. 18
+3.3.1.    Multithreaded Serial Reader .......................................... 18
+3.3.2.    ARP Sniffer and Gateway Resolution .................................. 19
+3.3.3.    OUI Lookup and MAC Identification .................................... 20
+3.3.4.    Graphical User Interface ............................................. 21
+3.3.5.    User (Non-technician) vs. Technician Views ........................... 22
+3.3.6.    Notification Alerts and JARVIS Audio Alarm .......................... 23
+3.4.      Summary .............................................................. 24
 
-CHAPTER 5: CONCLUSION AND FURTHER EXTENSIONS
-5.1. Conclusion .............................................. 46
-5.2. Further Extensions ...................................... 47
+4.        CONCLUSION AND FURTHER EXTENSIONS
+4.1.      Conclusion ........................................................... 25
+4.2.      Further Extensions ................................................... 26
 
-REFERENCES ................................................... 48
-GLOSSARY ..................................................... 49
-APPENDICES ................................................... 50
+REFERENCES ..................................................................... 27

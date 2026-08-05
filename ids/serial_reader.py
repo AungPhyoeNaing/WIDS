@@ -36,6 +36,17 @@ class SerialReader:
             logger.error(f"Error connecting to serial: {e}")
             return False
 
+    def send_command(self, cmd_dict):
+        if self.serial and self.serial.is_open:
+            try:
+                cmd_str = json.dumps(cmd_dict) + "\n"
+                self.serial.write(cmd_str.encode('utf-8'))
+                logger.info(f"Sent command to ESP32: {cmd_str.strip()}")
+                return True
+            except Exception as e:
+                logger.error(f"Error sending command to ESP32: {e}")
+        return False
+
     def disconnect(self):
         self.running = False
         if self.thread:
