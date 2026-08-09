@@ -213,6 +213,16 @@ class UserView(ctk.CTkFrame):
 
         # ── Full detail (Alerts tab)
         if is_et:
+            is_cloned = alert.get("is_cloned_mac", False)
+            if is_cloned:
+                ctk.CTkLabel(
+                    inner,
+                    text="🚨  A fake copy of this network is active. An attacker is using the SAME network name and SAME device ID as your real Wi-Fi to trick your devices into connecting to it.",
+                    font=ctk.CTkFont(size=14, weight="bold"),
+                    text_color=ThemeManager.get("danger"),
+                    justify="left", wraplength=840
+                ).pack(fill="x", padx=14, pady=(2, 4), anchor="w")
+
             if is_mesh:
                 ctk.CTkLabel(
                     inner,
@@ -228,21 +238,30 @@ class UserView(ctk.CTkFrame):
                 text_color=ThemeManager.get("text_body")
             ).pack(fill="x", padx=14, pady=(4, 0), anchor="w")
 
-            # Rogue MAC
-            mf = ctk.CTkFrame(inner, fg_color="transparent")
-            mf.pack(fill="x", padx=14, pady=(6, 2))
-            ctk.CTkLabel(mf, text="🔴  Suspicious Device (Attacker):",
-                         font=ctk.CTkFont(size=14, weight="bold"), text_color=ThemeManager.get("danger")).pack(side="left")
-            ctk.CTkLabel(mf, text=f"  Device ID: {alert.get('rogue_mac', '?')}",
-                         font=ctk.CTkFont(size=14, family="Courier"), text_color=ThemeManager.get("danger")).pack(side="left")
+            if is_cloned:
+                # Cloned-MAC: only ONE Device ID exists — it is being impersonated.
+                mf = ctk.CTkFrame(inner, fg_color="transparent")
+                mf.pack(fill="x", padx=14, pady=(6, 2))
+                ctk.CTkLabel(mf, text="🔴  Impersonated Device ID:",
+                             font=ctk.CTkFont(size=14, weight="bold"), text_color=ThemeManager.get("danger")).pack(side="left")
+                ctk.CTkLabel(mf, text=f"  {alert.get('rogue_mac', '?')}",
+                             font=ctk.CTkFont(size=14, family="Courier"), text_color=ThemeManager.get("danger")).pack(side="left")
+            else:
+                # Rogue MAC
+                mf = ctk.CTkFrame(inner, fg_color="transparent")
+                mf.pack(fill="x", padx=14, pady=(6, 2))
+                ctk.CTkLabel(mf, text="🔴  Suspicious Device (Attacker):",
+                             font=ctk.CTkFont(size=14, weight="bold"), text_color=ThemeManager.get("danger")).pack(side="left")
+                ctk.CTkLabel(mf, text=f"  Device ID: {alert.get('rogue_mac', '?')}",
+                             font=ctk.CTkFont(size=14, family="Courier"), text_color=ThemeManager.get("danger")).pack(side="left")
 
-            # Legit MAC
-            mf2 = ctk.CTkFrame(inner, fg_color="transparent")
-            mf2.pack(fill="x", padx=14, pady=(0, 2))
-            ctk.CTkLabel(mf2, text="✅  Your Real Router:",
-                         font=ctk.CTkFont(size=14, weight="bold"), text_color=ThemeManager.get("success")).pack(side="left")
-            ctk.CTkLabel(mf2, text=f"  Device ID: {alert.get('legit_mac', '?')}",
-                         font=ctk.CTkFont(size=14, family="Courier"), text_color=ThemeManager.get("success")).pack(side="left")
+                # Legit MAC
+                mf2 = ctk.CTkFrame(inner, fg_color="transparent")
+                mf2.pack(fill="x", padx=14, pady=(0, 2))
+                ctk.CTkLabel(mf2, text="✅  Your Real Router:",
+                             font=ctk.CTkFont(size=14, weight="bold"), text_color=ThemeManager.get("success")).pack(side="left")
+                ctk.CTkLabel(mf2, text=f"  Device ID: {alert.get('legit_mac', '?')}",
+                             font=ctk.CTkFont(size=14, family="Courier"), text_color=ThemeManager.get("success")).pack(side="left")
 
             # Technical details are hidden in User View
 

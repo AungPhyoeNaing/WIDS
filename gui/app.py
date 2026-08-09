@@ -605,6 +605,23 @@ class App(ctk.CTk):
         self.after(30000, self._check_unacknowledged_alerts)
 
     def _play_alert_sound(self, message="Alert Detected"):
+        import time
+        now = time.time()
+        
+        # Audio Throttling: Prevent choppy overlapping sounds during floods
+        if not hasattr(self, 'last_audio_times'):
+            self.last_audio_times = {}
+        if not hasattr(self, 'last_any_audio_time'):
+            self.last_any_audio_time = 0
+            
+        if now - self.last_any_audio_time < 1.5:
+            return
+        if now - self.last_audio_times.get(message, 0) < 4.0:
+            return
+            
+        self.last_any_audio_time = now
+        self.last_audio_times[message] = now
+        
         try:
             import ctypes, os
             
@@ -642,7 +659,7 @@ class App(ctk.CTk):
         alert.setdefault("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         alert.setdefault("last_seen", alert["time"])
         self.alerts_list.append(alert)
-        if len(self.alerts_list) > 2000:
+        if len(self.alerts_list) > 500:
             self.alerts_list.pop(0)
         return alert
 
@@ -673,21 +690,42 @@ class App(ctk.CTk):
                 severity = "Low"
 
             reasons_str = " | ".join(alert.get("reasons", []))
+            source_mac = alert.get("source", "Unknown")
+            bssid_val = alert.get("bssid", "Unknown")
 
-            self._add_alert({
-                "time": alert.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-                "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "type": f"Deauth Attack [{severity}]",
-                "severity": severity,
-                "target_mac": alert.get("victim", "Unknown"),
-                "source_mac": alert.get("source", "Unknown"),
-                "bssid": alert.get("bssid", "Unknown"),
-                "deauth_count": self.deauth_count,
-                "details": reasons_str,
-                "score": score,
-                "reasons": alert.get("reasons", []),
-                "seen_count": 1,
-            })
+            # ── CONSOLIDATION: Merge into existing deauth alert if one exists ──
+            # During sustained attacks (Wifiphisher, Airgeddon), we update the
+            # existing alert card instead of creating hundreds of new ones.
+            existing = None
+            for a in reversed(self.alerts_list):
+                if a.get("type", "").startswith("Deauth") and a.get("bssid") == bssid_val:
+                    existing = a
+                    break
+
+            if existing:
+                existing["seen_count"] = existing.get("seen_count", 1) + 1
+                existing["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                existing["deauth_count"] = self.deauth_count
+                existing["score"] = max(existing.get("score", 0), score)
+                existing["details"] = reasons_str
+                existing["reasons"] = alert.get("reasons", [])
+                # Upgrade severity if the new score is higher
+                existing["severity"] = severity if score > existing.get("score", 0) else existing["severity"]
+            else:
+                self._add_alert({
+                    "time": alert.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                    "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": f"Deauth Attack [{severity}]",
+                    "severity": severity,
+                    "target_mac": alert.get("victim", "Unknown"),
+                    "source_mac": source_mac,
+                    "bssid": bssid_val,
+                    "deauth_count": self.deauth_count,
+                    "details": reasons_str,
+                    "score": score,
+                    "reasons": alert.get("reasons", []),
+                    "seen_count": 1,
+                })
 
     def _find_serial_ports(self):
         try:
@@ -695,35 +733,44 @@ class App(ctk.CTk):
         except Exception:
             return []
 
-    def _try_auto_connect_serial(self):
+    def _try_auto_connect_serial(self, ports_to_try=None):
         if self.is_connected:
             return
 
+        if ports_to_try is None:
+            requested_port = self.com_port_entry.get().strip()
+            ports_to_try = [requested_port] if requested_port else self._find_serial_ports()
+            if not ports_to_try:
+                self.after(5000, self._try_auto_connect_serial)
+                return
+
+        if not ports_to_try:
+            self.status_label.configure(text="● Auto-connect failed", text_color="#ef4444")
+            self.after(5000, self._try_auto_connect_serial)
+            return
+
+        port = ports_to_try.pop(0)
+        
         baud_text = self.baud_entry.get().strip() or "115200"
         try:
             baud = int(baud_text)
         except ValueError:
             baud = 115200
 
-        requested_port = self.com_port_entry.get().strip()
-        ports = [requested_port] if requested_port else self._find_serial_ports()
-        if not ports:
+        self.status_label.configure(text=f"● Trying {port}...", text_color="#f59e0b")
+        self.update() # Force UI update before blocking
+        
+        success = self.start_serial_cb(port, baud)
+        if success:
+            self.com_port_entry.delete(0, tk.END)
+            self.com_port_entry.insert(0, port)
+            self.is_connected = True
+            self.connect_btn.configure(text="DISCONNECT", fg_color="#ef4444", hover_color="#dc2626")
+            self.status_label.configure(text=f"● Connected to {port}", text_color="#10b981")
+            self._play_alert_sound("Greeting")
             return
-
-        for port in ports:
-            self.status_label.configure(text=f"● Trying {port}...", text_color="#f59e0b")
-            success = self.start_serial_cb(port, baud)
-            if success:
-                self.com_port_entry.delete(0, tk.END)
-                self.com_port_entry.insert(0, port)
-                self.is_connected = True
-                self.connect_btn.configure(text="DISCONNECT", fg_color="#ef4444", hover_color="#dc2626")
-                self.status_label.configure(text=f"● Connected to {port}", text_color="#10b981")
-                self._play_alert_sound("Greeting")
-                return
-
-        self.status_label.configure(text="● Auto-connect failed", text_color="#ef4444")
-        self.after(5000, self._try_auto_connect_serial)
+            
+        self.after(10, lambda: self._try_auto_connect_serial(ports_to_try))
 
     def toggle_connection(self):
         if not self.is_connected:
@@ -832,9 +879,15 @@ class App(ctk.CTk):
     def process_packet_queue(self):
         packets_to_insert = []
         try:
-            # Process up to 100 packets per batch to keep the stream readable
-            for _ in range(100):
+            start_time = time.time()
+            # Process up to 5000 packets per batch to handle DoS streams
+            processed_this_batch = 0
+            while not self.packet_queue.empty() and processed_this_batch < 5000:
+                if time.time() - start_time > 0.05: # Yield after 50ms to keep GUI butter smooth
+                    break
+                    
                 packet = self.packet_queue.get_nowait()
+                processed_this_batch += 1
                 
                 self.total_packets += 1
                 subtype = packet.get('subtype', '')
@@ -1083,21 +1136,29 @@ class App(ctk.CTk):
                     search_term = self.search_entry.get().strip().lower()
                     if search_term:
                         match = False
-                        if search_term in network_name.lower(): match = True
-                        elif search_term in mac_src.lower(): match = True
-                        elif search_term in mac_dst.lower(): match = True
-                        elif search_term in bssid.lower(): match = True
+                        if search_term in (network_name or "").lower(): match = True
+                        elif search_term in (mac_src or "").lower(): match = True
+                        elif search_term in (mac_dst or "").lower(): match = True
+                        elif search_term in (bssid or "").lower(): match = True
                         if not match:
                             continue
                     
                     packets_to_insert.append(packet)
         except queue.Empty:
             pass
+        except Exception as e:
+            print(f"[WIDS] Exception in process_packet_queue: {e}")
+            import traceback
+            traceback.print_exc()
             
         if packets_to_insert:
             self.stat_packets.configure(text=str(self.total_packets))
             self.stat_deauth.configure(text=str(self.deauth_count))
             self.stat_alerts.configure(text=str(self.alert_count))
+            
+            # ONLY render the last 100 packets if we processed a huge batch to prevent GUI freezing
+            if len(packets_to_insert) > 100:
+                packets_to_insert = packets_to_insert[-100:]
             
             for packet in packets_to_insert:
                 subtype = packet.get('subtype', '')
@@ -1179,6 +1240,14 @@ class App(ctk.CTk):
                                key=lambda a: (order.get(a["severity"], 9), a["time"]),
                                reverse=False)
         sorted_alerts.reverse()  # newest first within each severity bucket
+        
+        # UI OPTIMIZATION: Only render the top 50 alerts to prevent Tkinter from freezing
+        # when building thousands of complex widgets at once.
+        total_alerts = len(sorted_alerts)
+        if total_alerts > 50:
+            sorted_alerts = sorted_alerts[:50]
+            ctk.CTkLabel(scroll, text=f"⚠️ Showing top 50 most critical/recent alerts (out of {total_alerts} total).",
+                         font=ctk.CTkFont(size=12, slant="italic"), text_color=ThemeManager.get("warning")).pack(pady=(10, 5))
         
         for alert in sorted_alerts:
             sev = alert.get("severity", "Low")
@@ -1333,7 +1402,11 @@ class App(ctk.CTk):
 
                 src_f = ctk.CTkFrame(inner, fg_color="transparent")
                 src_f.pack(fill="x", padx=14, pady=(4, 2))
-                ctk.CTkLabel(src_f, text=f"🔴  Source (Attacker):",
+                
+                is_spoofed_ap = (source == bssid_val)
+                label_text = "🔴  Spoofed Source (Attacker impersonating AP!):" if is_spoofed_ap else "🔴  Spoofed Source:"
+                
+                ctk.CTkLabel(src_f, text=label_text,
                              font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("danger")).pack(side="left")
                 ctk.CTkLabel(src_f, text=f"  {source}",
                              font=ctk.CTkFont(size=12, family="Courier"), text_color=ThemeManager.get("danger")).pack(side="left")

@@ -79,6 +79,45 @@ class DeauthAlertTests(unittest.TestCase):
         self.assertIn("details", alert)
         self.assertIn("score", alert)
 
+    def test_deauth_alert_rate_limiting_cooldown(self):
+        app = self._make_app()
+        packet1 = {
+            "mac_src": "AA:BB:CC:DD:EE:FF",
+            "mac_dst": "FF:FF:FF:FF:FF:FF",
+            "bssid": "11:22:33:44:55:66",
+            "subtype": "Deauthentication",
+        }
+        # First packet should trigger an alert
+        App._handle_deauth_packet(app, packet1)
+        self.assertEqual(app.alert_count, 1)
+
+        # Second packet immediately after should NOT trigger an alert due to cooldown
+        App._handle_deauth_packet(app, packet1)
+        self.assertEqual(app.alert_count, 1)
+        
+        # Override the alert_cache time to simulate 11 seconds passing
+        alert_key = ("AA:BB:CC:DD:EE:FF", "FF:FF:FF:FF:FF:FF")
+        if alert_key in app.deauth_detector.alert_cache:
+            app.deauth_detector.alert_cache[alert_key] -= 15
+            
+        # Third packet after cooldown should trigger an alert
+        App._handle_deauth_packet(app, packet1)
+        self.assertEqual(app.alert_count, 2)
+
+    def test_deauth_mac_case_insensitivity(self):
+        app = self._make_app()
+        packet = {
+            "mac_src": "aa:bb:cc:dd:ee:ff",
+            "mac_dst": "ff:ff:ff:ff:ff:ff",
+            "bssid": "11:22:33:44:55:66",
+            "subtype": "Deauthentication",
+        }
+        App._handle_deauth_packet(app, packet)
+        
+        self.assertEqual(app.alert_count, 1)
+        alert = app.alerts_list[0]
+        self.assertEqual(alert["target_mac"], "FF:FF:FF:FF:FF:FF")
+        self.assertEqual(alert["source_mac"], "AA:BB:CC:DD:EE:FF")
 
 if __name__ == "__main__":
     unittest.main()

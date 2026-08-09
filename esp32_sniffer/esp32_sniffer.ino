@@ -23,7 +23,7 @@ typedef struct {
 
 // FreeRTOS queue to safely pass data from the callback to the main loop
 QueueHandle_t packetQueue;
-const int QUEUE_SIZE = 50; // Buffer up to 50 packets
+const int QUEUE_SIZE = 100; // Buffer up to 100 packets
 
 // The callback runs in a high-priority context. 
 // DO NOT use Serial.print or heavy String operations here!
@@ -75,8 +75,15 @@ void wifi_promiscuous_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
     }
 
     // Send the packet to the queue (non-blocking)
-    // If the queue is full, we just drop the packet to prevent crashing
-    xQueueSendFromISR(packetQueue, &p, NULL);
+    if (xQueueSendFromISR(packetQueue, &p, NULL) != pdTRUE) {
+        // Queue is full. If this is a Beacon (8) or Probe Response (5), it's critical for Evil Twin detection!
+        // Drop the oldest packet in the queue to make room for this important frame.
+        if (frameSubtype == 8 || frameSubtype == 5) {
+            SniffPacket dummy;
+            xQueueReceiveFromISR(packetQueue, &dummy, NULL); // Remove oldest
+            xQueueSendFromISR(packetQueue, &p, NULL);        // Insert new
+        }
+    }
 }
 
 void setup() {
