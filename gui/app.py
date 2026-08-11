@@ -45,6 +45,9 @@ class App(ctk.CTk):
         self.ssid_to_bssid = {} # SSID -> set(BSSID)
         self.bssid_channel = {} # BSSID -> channel
         self.bssid_rssi = {} # BSSID -> deque of last N RSSI readings
+        
+        # Track devices on target network
+        self.target_devices_seen = {} # MAC -> timestamp
         self.bssid_first_seen = {} # BSSID -> timestamp of first sighting
         self.bssid_seen_count = {} # BSSID -> total packet count
         self.ssid_suspected_rogue = {} # SSID -> suspected rogue BSSID
@@ -961,6 +964,15 @@ class App(ctk.CTk):
                 channel = packet.get('channel', None)
                 rssi = packet.get('rssi', None)
                 
+                # Track target devices from ALL processed packets
+                if self.target_ssid:
+                    target_bssids = self.ssid_to_bssid.get(self.target_ssid, set())
+                    if bssid in target_bssids:
+                        now = time.time()
+                        for mac in (mac_src, mac_dst):
+                            if mac and mac != "ff:ff:ff:ff:ff:ff" and mac != bssid and mac != "00:00:00:00:00:00":
+                                self.target_devices_seen[mac] = now
+                
                 is_evil_twin = False
                 
                 # ── BSSID State Cleanup ──
@@ -1313,6 +1325,15 @@ class App(ctk.CTk):
             self.after(40, step)
             
         step()
+
+    @property
+    def active_target_devices_count(self):
+        now = time.time()
+        # Filter out devices not seen in the last 5 minutes (300 seconds)
+        active_macs = [mac for mac, last_seen in self.target_devices_seen.items() if now - last_seen < 300]
+        # Clean up stale devices from memory
+        self.target_devices_seen = {mac: last_seen for mac, last_seen in self.target_devices_seen.items() if now - last_seen < 300}
+        return len(active_macs)
 
     def show_toast(self, alert):
         if not hasattr(self, "toast_frame") or not self.toast_frame.winfo_exists():
