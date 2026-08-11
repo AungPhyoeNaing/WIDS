@@ -967,10 +967,10 @@ class App(ctk.CTk):
                 # Track target devices from ALL processed packets
                 if self.target_ssid:
                     target_bssids = self.ssid_to_bssid.get(self.target_ssid, set())
-                    if bssid in target_bssids:
+                    if target_bssids and (bssid in target_bssids or mac_src in target_bssids or mac_dst in target_bssids):
                         now = time.time()
                         for mac in (mac_src, mac_dst):
-                            if mac and mac != "ff:ff:ff:ff:ff:ff" and mac != bssid and mac != "00:00:00:00:00:00":
+                            if mac and mac != "ff:ff:ff:ff:ff:ff" and mac not in target_bssids and mac != "00:00:00:00:00:00":
                                 self.target_devices_seen[mac] = now
                 
                 is_evil_twin = False
