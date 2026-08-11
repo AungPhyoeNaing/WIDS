@@ -48,6 +48,7 @@ class App(ctk.CTk):
         
         # Reference to ARPSniffer - set by Controller after init
         self.arp_sniffer = None
+        self.bssid_first_seen = {} # BSSID -> timestamp of first sighting
         self.bssid_seen_count = {} # BSSID -> total packet count
         self.ssid_suspected_rogue = {} # SSID -> suspected rogue BSSID
         self.ssid_suspected_legit = {} # SSID -> suspected legitimate BSSID
