@@ -24,6 +24,9 @@ class Controller:
         # Initialize app BEFORE starting the sniffers to avoid AttributeError
         # if a packet is received immediately
         self.app = App(self.start_serial, self.stop_serial, self.serial_reader.send_command)
+        
+        # Give the app a reference to the arp_sniffer so it can count local devices
+        self.app.arp_sniffer = self.arp_sniffer
 
         self.arp_sniffer.start()
 
@@ -48,8 +51,29 @@ class Controller:
         if (packet.get("type") == "Management"
                 and packet.get("subtype") == "Beacon"):
             bssid = packet.get("bssid")
+            ssid = packet.get("ssid")
             if bssid:
                 self.gateway_resolver.verify_with_bssid(bssid)
+                
+            # Check for Evil Twin dynamically
+            from ids.wifi_memory import load_legit_wifi
+            import time
+            legit_wifi = load_legit_wifi()
+            if legit_wifi and ssid and bssid:
+                if ssid == legit_wifi["ssid"] and bssid.upper() != legit_wifi["bssid"].upper():
+                    # This is an Evil Twin! Same SSID, different BSSID from our legit one.
+                    alert_packet = {
+                        "type": "802.11",
+                        "subtype": "Evil Twin",
+                        "alert_type": "evil_twin_detected",
+                        "mac_src": bssid,
+                        "ssid": ssid,
+                        "legit_bssid": legit_wifi["bssid"],
+                        "confidence": "HIGH",
+                        "timestamp": time.time(),
+                        "details": f"Evil Twin AP detected broadcasting '{ssid}' with rogue MAC {bssid}. Legit MAC is {legit_wifi['bssid']}"
+                    }
+                    self.app.add_packet(alert_packet)
 
         self.app.add_packet(packet)
 
