@@ -32,6 +32,8 @@ DARK_THEME = {
     "btn_clear_hover": "#991b1b",
     
     "tree_bg": "#18181b",
+    "tree_odd_bg": "#18181b",
+    "tree_even_bg": "#222226",
     "tree_header_bg": "#27272a",
     "tree_header_fg": "#a1a1aa",
     "tree_fg": "#e4e4e7",
@@ -99,6 +101,8 @@ LIGHT_THEME = {
     "btn_clear_hover": "#b91c1c",
     
     "tree_bg": "#f8fafc",      # Slate 50
+    "tree_odd_bg": "#f8fafc",
+    "tree_even_bg": "#f1f5f9", # Slate 100
     "tree_header_bg": "#cbd5e1",# Slate 300
     "tree_header_fg": "#1e293b",# Slate 800
     "tree_fg": "#0f172a",      # Slate 900

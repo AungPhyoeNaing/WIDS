@@ -36,6 +36,25 @@ class UserView(ctk.CTkFrame):
                 text_color=ThemeManager.get("text_dark_only") if active else ThemeManager.get("text_muted"),
                 hover_color=ThemeManager.get("bg_elevated")
             )
+        
+        # Reconfigure custom buttons
+        if hasattr(self, 'btn_switch'):
+            self.btn_switch.configure(
+                fg_color=ThemeManager.get("accent"),
+                hover_color=ThemeManager.get("accent_hover")
+            )
+        if hasattr(self, 'btn_mute'):
+            self.btn_mute.configure(
+                hover_color=ThemeManager.get("bg_elevated"),
+                text_color=ThemeManager.get("user_view_text_muted")
+            )
+        if hasattr(self, 'btn_theme'):
+            toggle_text = "☀️ Light" if ThemeManager.is_dark() else "🌙 Dark"
+            self.btn_theme.configure(
+                text=toggle_text,
+                hover_color=ThemeManager.get("bg_elevated"),
+                text_color=ThemeManager.get("user_view_text_muted")
+            )
 
     def add_packet(self, packet):
         """Receive packet notification from App (stats polled live from self.app)."""
@@ -51,6 +70,50 @@ class UserView(ctk.CTkFrame):
         self._nav_frame.grid(row=0, column=0, sticky="ew")
         self._nav_frame.grid_columnconfigure(0, weight=1)
         self._nav_frame.pack_propagate(False)
+
+        # Technician Switch Button (Left aligned)
+        self.btn_switch = ctk.CTkButton(
+            self._nav_frame,
+            text="\U0001F464 Switch to Technician",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color=ThemeManager.get("accent"),
+            hover_color=ThemeManager.get("accent_hover"),
+            corner_radius=8,
+            height=40,
+            command=self.switch_to_technician
+        )
+        self.btn_switch.pack(side="left", padx=12, pady=12)
+
+        # Mute PC Button
+        self.btn_mute = ctk.CTkButton(
+            self._nav_frame,
+            text="🔇 Mute PC" if self.app.mute_host_pc else "🔊 Sound On",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="transparent",
+            hover_color=ThemeManager.get("bg_elevated"),
+            text_color=ThemeManager.get("user_view_text_muted"),
+            corner_radius=8,
+            height=40,
+            width=100,
+            command=self._toggle_mute_pc
+        )
+        self.btn_mute.pack(side="left", padx=4, pady=12)
+
+        # Theme Toggle Button
+        toggle_text = "☀️ Light" if ThemeManager.is_dark() else "🌙 Dark"
+        self.btn_theme = ctk.CTkButton(
+            self._nav_frame,
+            text=toggle_text,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            fg_color="transparent",
+            hover_color=ThemeManager.get("bg_elevated"),
+            text_color=ThemeManager.get("user_view_text_muted"),
+            corner_radius=8,
+            height=40,
+            width=80,
+            command=self.app.toggle_theme
+        )
+        self.btn_theme.pack(side="left", padx=4, pady=12)
 
         self._nav_buttons = {}
         for page_id, label, icon in [
@@ -71,6 +134,15 @@ class UserView(ctk.CTkFrame):
             )
             btn.pack(side="right", padx=8, pady=12)
             self._nav_buttons[page_id] = btn
+
+    def _toggle_mute_pc(self):
+        new_val = not self.app.mute_host_pc
+        if new_val:
+            self.app.mute_pc_switch.select()
+        else:
+            self.app.mute_pc_switch.deselect()
+        self.app.toggle_mute_pc()
+        self.btn_mute.configure(text="🔇 Mute PC" if self.app.mute_host_pc else "🔊 Sound On")
 
     def _switch(self, page):
         self.page = page
@@ -108,6 +180,10 @@ class UserView(ctk.CTkFrame):
         card.grid(row=0, column=col, padx=10, sticky="ew")
         card.grid_propagate(False)
         card.grid_columnconfigure(0, weight=1)
+        card.grid_columnconfigure(1, weight=0)
+        
+        icon = "📡" if "NETWORK" in title.upper() else "🛡️"
+        
         ctk.CTkLabel(
             card, text=title,
             font=ctk.CTkFont(size=14, weight="bold"),
@@ -119,6 +195,10 @@ class UserView(ctk.CTkFrame):
             text_color=color
         )
         val.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="w")
+        
+        icon_lbl = ctk.CTkLabel(card, text=icon, font=ctk.CTkFont(size=42), text_color=ThemeManager.get("bg_elevated"))
+        icon_lbl.grid(row=0, column=1, rowspan=2, padx=20, pady=20, sticky="e")
+        
         return val
 
     def _make_header(self, parent, title, action_widget=None):
@@ -389,13 +469,18 @@ class UserView(ctk.CTkFrame):
         top_frame = ctk.CTkFrame(c, fg_color="transparent")
         top_frame.grid(row=0, column=0, padx=30, pady=(30, 10), sticky="ew")
         top_frame.grid_columnconfigure((0, 1), weight=1)
+        top_frame.grid_columnconfigure(2, weight=0)
 
         self._stat_labels["devices"] = self._create_stat_card(
-            top_frame, "TOTAL DEVICES", 0, ThemeManager.get("primary")
+            top_frame, "NETWORKS FOUND", 0, ThemeManager.get("primary")
         )
         self._secure_label = self._create_stat_card(
             top_frame, "SECURITY STATUS", 1, ThemeManager.get("success")
         )
+        
+        self._radar_canvas = ctk.CTkCanvas(top_frame, width=110, height=110, bg=ThemeManager.get("bg_root"), highlightthickness=0)
+        self._radar_canvas.grid(row=0, column=2, padx=(10, 0), sticky="e")
+        self._animate_radar()
 
         # Recent alerts area (row 1) — fills remaining space
         log_frame = ctk.CTkFrame(c, fg_color=ThemeManager.get("bg_card"), corner_radius=12)
@@ -473,7 +558,7 @@ class UserView(ctk.CTkFrame):
     def _update_home_stats(self):
         lbl = self._stat_labels.get("devices")
         if lbl is not None and lbl.winfo_exists():
-            lbl.configure(text=str(len(self.app.network_map)))
+            self.app._update_stat_animated(lbl, len(self.app.network_map))
 
     def _refresh_home_preview(self):
         if not hasattr(self, "_home_preview_scroll") or not self._home_preview_scroll.winfo_exists():
@@ -592,3 +677,37 @@ class UserView(ctk.CTkFrame):
         except Exception:
             pass
         self.after(1000, self._live_update)
+
+    def _animate_radar(self):
+        if not hasattr(self, "_radar_canvas") or not self._radar_canvas.winfo_exists():
+            return
+            
+        import math
+        self._radar_canvas.delete("all")
+        
+        # Determine center
+        w, h = 110, 110
+        cx, cy = w/2, h/2
+        
+        # Draw background circles
+        color_line = ThemeManager.get("primary")
+        for r in [20, 35, 50]:
+            self._radar_canvas.create_oval(cx-r, cy-r, cx+r, cy+r, outline=color_line, width=1)
+            
+        # Animate sweep
+        angle = getattr(self, "_radar_angle", 0)
+        self._radar_angle = (angle + 5) % 360
+        
+        # Draw sweep line
+        rad = math.radians(self._radar_angle)
+        x = cx + 50 * math.cos(rad)
+        y = cy + 50 * math.sin(rad)
+        
+        self._radar_canvas.create_line(cx, cy, x, y, fill=color_line, width=2)
+        
+        # Draw center dot
+        self._radar_canvas.create_oval(cx-3, cy-3, cx+3, cy+3, fill=ThemeManager.get("accent"))
+        
+        if hasattr(self, "_radar_anim_id"):
+            self.after_cancel(self._radar_anim_id)
+        self._radar_anim_id = self.after(50, self._animate_radar)

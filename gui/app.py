@@ -58,6 +58,8 @@ class App(ctk.CTk):
         self.deauth_history = {} # target_mac -> deque of timestamps
         self.deauth_alert_cooldown = {} # target_mac -> timestamp of last alert
         
+        self.row_counter = 0
+        
         # ARP tracking
         self.arp_alerts_sent = {} # (ip, mac) -> timestamp, rate-limit ARP alerts
         
@@ -71,6 +73,9 @@ class App(ctk.CTk):
 
         self.packet_queue = queue.Queue()
         self.update_interval = 500 # ms
+        
+        self.mute_host_pc = False
+        self.mute_speaker = False
         
         self.create_sidebar()
         self.create_main_content()
@@ -104,7 +109,7 @@ class App(ctk.CTk):
     def create_sidebar(self):
         self.sidebar_frame = ctk.CTkFrame(self, width=240, corner_radius=0, fg_color=ThemeManager.get("bg_sidebar"))
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(6, weight=1)
+        self.sidebar_frame.grid_rowconfigure(8, weight=1)
         
         logo_path = os.path.join(os.path.dirname(__file__), "wids_logo.jpg")
         try:
@@ -156,6 +161,24 @@ class App(ctk.CTk):
         )
         self.view_alerts_btn.grid(row=5, column=0, padx=20, pady=(10, 10), sticky="ew")
 
+        # Mute Host PC Checkbox
+        self.mute_pc_switch = ctk.CTkSwitch(
+            self.sidebar_frame, text="Mute Host PC",
+            font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("text_muted"),
+            command=self.toggle_mute_pc
+        )
+        self.mute_pc_switch.grid(row=6, column=0, padx=20, pady=(10, 0), sticky="w")
+        if self.mute_host_pc: self.mute_pc_switch.select()
+
+        # Mute ESP32 Speaker Checkbox
+        self.mute_speaker_switch = ctk.CTkSwitch(
+            self.sidebar_frame, text="Mute Speaker",
+            font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("text_muted"),
+            command=self.toggle_mute_speaker
+        )
+        self.mute_speaker_switch.grid(row=7, column=0, padx=20, pady=(10, 10), sticky="w")
+        if self.mute_speaker: self.mute_speaker_switch.select()
+
         # Theme toggle button
         toggle_text = "☀️ Light Mode" if ThemeManager.is_dark() else "🌙 Dark Mode"
         self.theme_toggle_btn = ctk.CTkButton(
@@ -165,7 +188,7 @@ class App(ctk.CTk):
             hover_color=ThemeManager.get("bg_elevated"),
             command=self.toggle_theme
         )
-        self.theme_toggle_btn.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="s")
+        self.theme_toggle_btn.grid(row=8, column=0, padx=20, pady=(0, 10), sticky="s")
 
         self.switch_view_btn = ctk.CTkButton(
             self.sidebar_frame, text="\U0001F464  Switch to User View", height=40,
@@ -173,7 +196,22 @@ class App(ctk.CTk):
             fg_color=ThemeManager.get("accent"), hover_color=ThemeManager.get("accent_hover"),
             command=self.toggle_view
         )
-        self.switch_view_btn.grid(row=7, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.switch_view_btn.grid(row=9, column=0, padx=20, pady=(0, 20), sticky="ew")
+
+    def toggle_mute_pc(self):
+        val = self.mute_pc_switch.get()
+        self.mute_host_pc = (val == 1 or val == "1" or val == True)
+        if self.mute_host_pc:
+            try:
+                import ctypes
+                ctypes.windll.winmm.mciSendStringW('stop jarvis_voice', None, 0, None)
+                ctypes.windll.winmm.mciSendStringW('close jarvis_voice', None, 0, None)
+            except:
+                pass
+
+    def toggle_mute_speaker(self):
+        val = self.mute_speaker_switch.get()
+        self.mute_speaker = (val == 1 or val == "1" or val == True)
 
     def create_main_content(self):
         self.main_frame = ctk.CTkFrame(self, fg_color=ThemeManager.get("bg_root"), corner_radius=0)
@@ -291,6 +329,8 @@ class App(ctk.CTk):
         self.style.map("Treeview.Heading", background=[('active', ThemeManager.get("bg_elevated"))])
         
     def _apply_tree_tags(self):
+        self.tree.tag_configure("odd", background=ThemeManager.get("tree_odd_bg"))
+        self.tree.tag_configure("even", background=ThemeManager.get("tree_even_bg"))
         self.tree.tag_configure("deauth", foreground=ThemeManager.get("tag_deauth"))
         self.tree.tag_configure("probe", foreground=ThemeManager.get("tag_probe"))
         self.tree.tag_configure("beacon", foreground=ThemeManager.get("tag_beacon"))
@@ -305,12 +345,18 @@ class App(ctk.CTk):
         card.grid_propagate(False)
         card.grid_rowconfigure((0,1), weight=1)
         card.grid_columnconfigure(0, weight=1)
+        card.grid_columnconfigure(1, weight=0)
+        
+        icon = "📶" if "PACKET" in title.upper() else "⚠️" if "DEAUTH" in title.upper() else "🚨" if "ALERT" in title.upper() else "🛡️"
         
         title_lbl = ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=12, weight="bold"), text_color=ThemeManager.get("text_muted"))
         title_lbl.grid(row=0, column=0, padx=20, pady=(20, 0), sticky="w")
         
         val_lbl = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=36, weight="bold"), text_color=highlight_color)
         val_lbl.grid(row=1, column=0, padx=20, pady=(0, 20), sticky="w")
+        
+        icon_lbl = ctk.CTkLabel(card, text=icon, font=ctk.CTkFont(size=36), text_color=ThemeManager.get("bg_elevated"))
+        icon_lbl.grid(row=0, column=1, rowspan=2, padx=20, pady=20, sticky="e")
         
         return val_lbl
 
@@ -645,20 +691,22 @@ class App(ctk.CTk):
                 esp_cmd = "PLAY:UNACK\n"
             
             # Trigger hardware external speaker via serial
-            if esp_cmd and hasattr(self, 'send_serial_cb') and self.send_serial_cb:
-                self.send_serial_cb(esp_cmd)
+            if not self.mute_speaker:
+                if esp_cmd and hasattr(self, 'send_serial_cb') and self.send_serial_cb:
+                    self.send_serial_cb(esp_cmd)
             
-            if audio_file and os.path.exists(audio_file):
-                path = os.path.abspath(audio_file)
-                alias = "jarvis_voice"
-                
-                # Stop and close the alias to cancel any currently playing sound
-                ctypes.windll.winmm.mciSendStringW(f'stop {alias}', None, 0, None)
-                ctypes.windll.winmm.mciSendStringW(f'close {alias}', None, 0, None)
-                
-                # Open the new sound and play asynchronously (without 'wait')
-                ctypes.windll.winmm.mciSendStringW(f'open "{path}" alias {alias}', None, 0, None)
-                ctypes.windll.winmm.mciSendStringW(f'play {alias}', None, 0, None)
+            if not self.mute_host_pc:
+                if audio_file and os.path.exists(audio_file):
+                    path = os.path.abspath(audio_file)
+                    alias = "jarvis_voice"
+                    
+                    # Stop and close the alias to cancel any currently playing sound
+                    ctypes.windll.winmm.mciSendStringW(f'stop {alias}', None, 0, None)
+                    ctypes.windll.winmm.mciSendStringW(f'close {alias}', None, 0, None)
+                    
+                    # Open the new sound and play asynchronously (without 'wait')
+                    ctypes.windll.winmm.mciSendStringW(f'open "{path}" alias {alias}', None, 0, None)
+                    ctypes.windll.winmm.mciSendStringW(f'play {alias}', None, 0, None)
         except Exception:
             pass
 
@@ -669,6 +717,7 @@ class App(ctk.CTk):
         alert.setdefault("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         alert.setdefault("last_seen", alert["time"])
         self.alerts_list.append(alert)
+        self.show_toast(alert)
         if len(self.alerts_list) > 500:
             self.alerts_list.pop(0)
         return alert
@@ -1051,6 +1100,7 @@ class App(ctk.CTk):
                                         "all_bssids": list(self.ssid_to_bssid.get(ssid, set()))
                                     }
                                     self.alerts_list.append(new_alert)
+                                    self.show_toast(new_alert)
                                     self.eviltwin_alert_index[alert_key] = len(self.alerts_list) - 1
                                     if len(self.alerts_list) > 2000:
                                         self.alerts_list.pop(0)
@@ -1088,7 +1138,7 @@ class App(ctk.CTk):
                             )
                             alert_label = "ARP Spoofing"
                         
-                        self.alerts_list.append({
+                        arp_alert = {
                             "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             "type": alert_label,
@@ -1100,7 +1150,9 @@ class App(ctk.CTk):
                             "confidence": confidence,
                             "alert_type": alert_type,
                             "seen_count": 1
-                        })
+                        }
+                        self.alerts_list.append(arp_alert)
+                        self.show_toast(arp_alert)
                         self.arp_alerts_sent[alert_key] = now
                         if len(self.alerts_list) > 2000:
                             self.alerts_list.pop(0)
@@ -1162,9 +1214,9 @@ class App(ctk.CTk):
             traceback.print_exc()
             
         if packets_to_insert:
-            self.stat_packets.configure(text=str(self.total_packets))
-            self.stat_deauth.configure(text=str(self.deauth_count))
-            self.stat_alerts.configure(text=str(self.alert_count))
+            self._update_stat_animated(self.stat_packets, self.total_packets)
+            self._update_stat_animated(self.stat_deauth, self.deauth_count)
+            self._update_stat_animated(self.stat_alerts, self.alert_count)
             
             # ONLY render the last 100 packets if we processed a huge batch to prevent GUI freezing
             if len(packets_to_insert) > 100:
@@ -1207,6 +1259,11 @@ class App(ctk.CTk):
                         packet.get('mac_dst', ''),
                         subtype
                     )
+                
+                parity_tag = "odd" if self.row_counter % 2 == 1 else "even"
+                tags = tags + (parity_tag,)
+                self.row_counter += 1
+                
                 self.tree.insert("", "0", values=values, tags=tags)
                 
             children = self.tree.get_children()
@@ -1216,6 +1273,72 @@ class App(ctk.CTk):
                     self.tree.delete(child)
                     
         self.after(self.update_interval, self.process_packet_queue)
+
+    def _update_stat_animated(self, label, new_val):
+        target = int(new_val)
+        label._anim_target = target
+        
+        try:
+            current = int(label.cget("text"))
+        except:
+            current = 0
+            
+        if current == target:
+            return
+            
+        # If it's already animating towards something else, the active step loop will pick up the new target
+        if getattr(label, "_is_animating", False):
+            return
+            
+        label._is_animating = True
+        
+        def step():
+            if not label.winfo_exists():
+                return
+            t = getattr(label, "_anim_target", target)
+            try:
+                c = int(label.cget("text"))
+            except:
+                c = 0
+                
+            if c == t:
+                label._is_animating = False
+                return
+                
+            diff = t - c
+            step_size = max(1, int(abs(diff) * 0.3))
+            next_val = c + step_size if diff > 0 else c - step_size
+            
+            label.configure(text=str(next_val))
+            self.after(40, step)
+            
+        step()
+
+    def show_toast(self, alert):
+        if not hasattr(self, "toast_frame") or not self.toast_frame.winfo_exists():
+            self.toast_frame = ctk.CTkFrame(self.main_frame, fg_color=ThemeManager.get("bg_elevated"), corner_radius=8, border_width=1, border_color=ThemeManager.get("border"))
+            self.toast_title = ctk.CTkLabel(self.toast_frame, text="", font=ctk.CTkFont(size=14, weight="bold"))
+            self.toast_title.pack(padx=15, pady=(10, 2), anchor="w")
+            self.toast_msg = ctk.CTkLabel(self.toast_frame, text="", font=ctk.CTkFont(size=12), text_color=ThemeManager.get("text_muted"))
+            self.toast_msg.pack(padx=15, pady=(0, 10), anchor="w")
+        
+        level = alert.get("severity", "Low")
+        color = ThemeManager.get(f"alert_stripe_{level.lower()}") if level.lower() in ["critical", "high", "medium", "low"] else ThemeManager.get("primary")
+        
+        title = alert.get("type", "Alert")
+        details = alert.get("details", "")
+        ssid = alert.get("ssid", "")
+        msg = f"Network: {ssid}" if ssid else (details[:50] + "..." if len(details) > 50 else details)
+        
+        self.toast_title.configure(text=f"⚠️ {title}", text_color=color)
+        self.toast_msg.configure(text=msg)
+        
+        self.toast_frame.place(relx=0.98, rely=0.95, anchor="se")
+        self.toast_frame.lift()
+        
+        if hasattr(self, "_toast_timer") and self._toast_timer:
+            self.after_cancel(self._toast_timer)
+        self._toast_timer = self.after(4000, self.toast_frame.place_forget)
 
     def show_alerts_window(self):
         alerts_win = ctk.CTkToplevel(self)
