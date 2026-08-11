@@ -23,7 +23,7 @@ class Controller:
         
         # Initialize app BEFORE starting the sniffers to avoid AttributeError
         # if a packet is received immediately
-        self.app = App(self.start_serial, self.stop_serial)
+        self.app = App(self.start_serial, self.stop_serial, self.serial_reader.send_command)
 
         self.arp_sniffer.start()
 

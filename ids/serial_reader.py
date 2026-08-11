@@ -38,6 +38,16 @@ class SerialReader:
         if self.serial and self.serial.is_open:
             self.serial.close()
 
+    def send_command(self, cmd: str):
+        if self.serial and self.serial.is_open:
+            try:
+                self.serial.write(cmd.encode('utf-8'))
+                self.serial.flush()
+                return True
+            except Exception as e:
+                print(f"Failed to send command: {e}")
+        return False
+
     def read_loop(self):
         while self.running and self.serial and self.serial.is_open:
             try:

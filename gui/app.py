@@ -18,7 +18,7 @@ from ids import config as ids_config
 
 
 class App(ctk.CTk):
-    def __init__(self, start_serial_cb, stop_serial_cb):
+    def __init__(self, start_serial_cb, stop_serial_cb, send_serial_cb=None):
         super().__init__()
         
         self.title("WIDS - Dashboard")
@@ -30,6 +30,7 @@ class App(ctk.CTk):
         
         self.start_serial_cb = start_serial_cb
         self.stop_serial_cb = stop_serial_cb
+        self.send_serial_cb = send_serial_cb
         
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -608,7 +609,6 @@ class App(ctk.CTk):
         import time
         now = time.time()
         
-        # Audio Throttling: Prevent choppy overlapping sounds during floods
         if not hasattr(self, 'last_audio_times'):
             self.last_audio_times = {}
         if not hasattr(self, 'last_any_audio_time'):
@@ -627,16 +627,26 @@ class App(ctk.CTk):
             
             # Map the message to the corresponding pre-recorded Jarvis mp3 file
             audio_file = None
+            esp_cmd = None
             if "Evil Twin" in message:
                 audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-32-Warning-!!-Evil-twin-wifi-detected!!.mp3"
+                esp_cmd = "PLAY:EVILTWIN\n"
             elif "ARP Spoofing" in message:
                 audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-34-Warning-!!-MAC-Spoofing-detected-,-Sir!!!.mp3"
+                esp_cmd = "PLAY:SPOOFING\n"
             elif "Deauth" in message:
                 audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-35-Warning-!!-Deauth-Attack-Frames-has-been-found-,.mp3"
+                esp_cmd = "PLAY:DEAUTH\n"
             elif "Greeting" in message:
                 audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-40-Hello-,-Sir-,-Our-Intrusion-Detection-System-is.mp3"
+                esp_cmd = "PLAY:GREETING\n"
             elif "Unacknowledged" in message:
                 audio_file = r"voice_audios\Jarvis-(MCU)-J.A.R.V.I.S-2026-07-14-23-56-Sir-!!-please-check-the-alerts-history-carefully.mp3"
+                esp_cmd = "PLAY:UNACK\n"
+            
+            # Trigger hardware external speaker via serial
+            if esp_cmd and hasattr(self, 'send_serial_cb') and self.send_serial_cb:
+                self.send_serial_cb(esp_cmd)
             
             if audio_file and os.path.exists(audio_file):
                 path = os.path.abspath(audio_file)
