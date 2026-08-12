@@ -795,7 +795,18 @@ class App(ctk.CTk):
                 existing["reasons"] = alert.get("reasons", [])
                 # Upgrade severity if the new score is higher
                 existing["severity"] = severity if score > existing.get("score", 0) else existing["severity"]
+                
+                # Periodically replay the sound for sustained attacks (every 10 seconds)
+                if not hasattr(self, 'last_deauth_audio_time'):
+                    self.last_deauth_audio_time = {}
+                current_time = time.time()
+                if current_time - self.last_deauth_audio_time.get(bssid_val, 0) >= 10:
+                    self._play_alert_sound(f"Deauth Attack [{severity}] Detected")
+                    self.last_deauth_audio_time[bssid_val] = current_time
             else:
+                if not hasattr(self, 'last_deauth_audio_time'):
+                    self.last_deauth_audio_time = {}
+                self.last_deauth_audio_time[bssid_val] = time.time()
                 self._add_alert({
                     "time": alert.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
                     "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1102,7 +1113,7 @@ class App(ctk.CTk):
                                         self.alerts_list[idx]["type"] = f"Evil Twin [{confidence_label} {score}%]"
                                         self.alerts_list[idx]["severity"] = severity
                                         
-                                        if current_time - self.last_eviltwin_audio_time.get(alert_key, 0) >= 60:
+                                        if current_time - self.last_eviltwin_audio_time.get(alert_key, 0) >= 10:
                                             self._play_alert_sound("Evil Twin Wifi Detected")
                                             self.last_eviltwin_audio_time[alert_key] = current_time
                                 else:
