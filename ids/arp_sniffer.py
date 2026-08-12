@@ -40,6 +40,24 @@ class ARPSniffer:
         for ip in stale_ips:
             del self.arp_table[ip]
 
+    @staticmethod
+    def _are_adjacent_macs(mac_a, mac_b):
+        """
+        Returns True if two MACs share the same OUI (first 3 bytes) and differ
+        only in the last byte by a small amount (≤ 3). This is characteristic of
+        dual-band routers and mesh extenders that assign sequential MACs to each
+        radio, and helps suppress false-positive ARP spoof alerts.
+        """
+        try:
+            a = [int(x, 16) for x in mac_a.split(":")]
+            b = [int(x, 16) for x in mac_b.split(":")]
+            if a[:3] != b[:3]:
+                return False
+            # Allow last byte to differ by up to 3 (covers 2.4/5/6GHz radios)
+            return abs(a[5] - b[5]) <= 3
+        except Exception:
+            return False
+
     def _handle_packet(self, packet):
         if packet.haslayer(ARP) and packet[ARP].op in (1, 2):
             ip = packet[ARP].psrc
@@ -55,7 +73,12 @@ class ARPSniffer:
             if self.gateway_resolver and ip == self.gateway_resolver.gateway_ip:
                 gateway_mac = self.gateway_resolver.gateway_mac
                 if gateway_mac and mac.upper() != gateway_mac.upper():
-                    # Gateway MAC mismatch! This is a spoof attempt.
+                    # Suppress alert if the MACs are adjacent (dual-band router / mesh node)
+                    if self._are_adjacent_macs(mac, gateway_mac):
+                        # Treat as same device — update table silently
+                        self.arp_table[ip] = (mac, time.time())
+                        return
+                    # Gateway MAC mismatch — genuine spoof attempt
                     self.callback({
                         "type": "ARP",
                         "subtype": "ARP Spoof",
