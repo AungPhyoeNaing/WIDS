@@ -43,18 +43,16 @@ class ARPSniffer:
     @staticmethod
     def _are_adjacent_macs(mac_a, mac_b):
         """
-        Returns True if two MACs share the same OUI (first 3 bytes) and differ
-        only in the last byte by a small amount (≤ 3). This is characteristic of
-        dual-band routers and mesh extenders that assign sequential MACs to each
-        radio, and helps suppress false-positive ARP spoof alerts.
+        Returns True if two MACs share the same manufacturer prefix.
+        Dual-band routers, mesh nodes, and multiple SSIDs (like Guest networks)
+        often use MAC addresses that differ only in the last byte or two.
+        Checking that the first 4 bytes match is a safe heuristic.
         """
         try:
             a = [int(x, 16) for x in mac_a.split(":")]
             b = [int(x, 16) for x in mac_b.split(":")]
-            if a[:3] != b[:3]:
-                return False
-            # Allow last byte to differ by up to 3 (covers 2.4/5/6GHz radios)
-            return abs(a[5] - b[5]) <= 3
+            # If the first 4 bytes match, it's extremely likely the same device/mesh
+            return a[:4] == b[:4]
         except Exception:
             return False
 
