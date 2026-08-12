@@ -662,14 +662,36 @@ class App(ctk.CTk):
             self.last_audio_times = {}
         if not hasattr(self, 'last_any_audio_time'):
             self.last_any_audio_time = 0
+        if not hasattr(self, 'last_audio_priority'):
+            self.last_audio_priority = -1
             
+        priorities = {
+            "Evil Twin": 4,
+            "ARP Spoofing": 3,
+            "Deauth": 2,
+            "Unacknowledged": 1,
+            "Greeting": 0
+        }
+        
+        current_priority = 0
+        for key, prio in priorities.items():
+            if key in message:
+                current_priority = prio
+                break
+                
+        # Only apply the 1.5s global throttle if the new message is lower or equal priority
+        # This allows critical alerts (Evil Twin) to interrupt spammy lower-priority ones (Deauth)
         if now - self.last_any_audio_time < 1.5:
-            return
+            if current_priority <= self.last_audio_priority:
+                return
+                
+        # Individual message throttle (don't spam the exact same message within 4 seconds)
         if now - self.last_audio_times.get(message, 0) < 4.0:
             return
             
         self.last_any_audio_time = now
         self.last_audio_times[message] = now
+        self.last_audio_priority = current_priority
         
         try:
             import ctypes, os
