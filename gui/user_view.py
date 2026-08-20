@@ -182,7 +182,7 @@ class UserView(ctk.CTkFrame):
         card.grid_columnconfigure(0, weight=1)
         card.grid_columnconfigure(1, weight=0)
         
-        icon = "📡" if "NETWORK" in title.upper() else "🛡️"
+        icon = "📱" if "DEVICE" in title.upper() else "🛡️"
         
         ctk.CTkLabel(
             card, text=title,
@@ -472,7 +472,7 @@ class UserView(ctk.CTkFrame):
         top_frame.grid_columnconfigure(2, weight=0)
 
         self._stat_labels["devices"] = self._create_stat_card(
-            top_frame, "NETWORKS FOUND", 0, ThemeManager.get("primary")
+            top_frame, "TOTAL DEVICES", 0, ThemeManager.get("primary")
         )
         self._secure_label = self._create_stat_card(
             top_frame, "SECURITY STATUS", 1, ThemeManager.get("success")
@@ -552,13 +552,13 @@ class UserView(ctk.CTkFrame):
     def _update_devices_count(self):
         if self._devices_label is None or not self._devices_label.winfo_exists():
             return
-        count = len(self.app.network_map)
+        count = self.app.active_target_devices_count
         self._devices_label.configure(text=str(count), text_color=ThemeManager.get("primary"))
 
     def _update_home_stats(self):
         lbl = self._stat_labels.get("devices")
         if lbl is not None and lbl.winfo_exists():
-            self.app._update_stat_animated(lbl, len(self.app.network_map))
+            self.app._update_stat_animated(lbl, self.app.active_target_devices_count)
 
     def _refresh_home_preview(self):
         if not hasattr(self, "_home_preview_scroll") or not self._home_preview_scroll.winfo_exists():

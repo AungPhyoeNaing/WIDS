@@ -57,6 +57,7 @@ class GatewayResolver:
         try:
             from scapy.config import conf
             from scapy.layers.l2 import getmacbyip
+            from ids.wifi_memory import get_or_set_legit_wifi, get_current_wifi_windows
 
             # Get the default gateway IP from the OS routing table
             route_info = conf.route.route("0.0.0.0")
@@ -66,8 +67,20 @@ class GatewayResolver:
                 logger.warning("Could not determine default gateway IP.")
                 return False
 
-            # Resolve gateway MAC via ARP
-            self.gateway_mac = getmacbyip(self.gateway_ip)
+            # Try to get MAC from legit Wi-Fi memory
+            legit_wifi = get_or_set_legit_wifi()
+            current_wifi = get_current_wifi_windows()
+
+            if legit_wifi:
+                self.gateway_mac = legit_wifi["bssid"].upper()
+                logger.info(f"Loaded legit Wi-Fi gateway MAC: {self.gateway_mac} (SSID: {legit_wifi['ssid']})")
+                
+                if current_wifi and current_wifi["ssid"] == legit_wifi["ssid"]:
+                    if current_wifi["bssid"].upper() != self.gateway_mac:
+                        logger.warning(f"⚠ IMMEDIATE EVIL TWIN DETECTED: Connected to {current_wifi['bssid']} instead of legit {self.gateway_mac}")
+            else:
+                # Fallback: Resolve gateway MAC via ARP
+                self.gateway_mac = getmacbyip(self.gateway_ip)
 
             if not self.gateway_mac:
                 logger.warning(f"Could not resolve MAC for gateway {self.gateway_ip}")

@@ -95,14 +95,16 @@ class DeauthAlertTests(unittest.TestCase):
         App._handle_deauth_packet(app, packet1)
         self.assertEqual(app.alert_count, 1)
         
-        # Override the alert_cache time to simulate 11 seconds passing
+        # Override the alert_cache and last_global_alert to simulate 35 seconds passing
         alert_key = ("AA:BB:CC:DD:EE:FF", "FF:FF:FF:FF:FF:FF")
         if alert_key in app.deauth_detector.alert_cache:
-            app.deauth_detector.alert_cache[alert_key] -= 15
+            app.deauth_detector.alert_cache[alert_key] -= 35
+        app.deauth_detector.last_global_alert -= 35
             
-        # Third packet after cooldown should trigger an alert
+        # Third packet after cooldown should trigger an alert (consolidated into existing alert card)
         App._handle_deauth_packet(app, packet1)
-        self.assertEqual(app.alert_count, 2)
+        self.assertEqual(len(app.alerts_list), 1)
+        self.assertEqual(app.alerts_list[0]["seen_count"], 2)
 
     def test_deauth_mac_case_insensitivity(self):
         app = self._make_app()

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentinel WIDS — 7-Minute Phone Teleprompter & Script</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --card-border: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-orange: #d29922;
+            --accent-red: #f85149;
+            --cue-bg: #1f242c;
+            --cue-border: #388bfd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Pyidaungsu", "Myanmar Text", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.8;
+            padding: 16px 12px 100px 12px;
+            max-width: 680px;
+            margin: 0 auto;
+        }
+
+        /* Sticky Teleprompter Timer Bar at Top */
+        .timer-bar {
+            position: sticky;
+            top: 0;
+            z-index: 999;
+            background: rgba(22, 27, 34, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 2px solid var(--accent-blue);
+            padding: 10px 16px;
+            margin: -16px -12px 20px -12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+
+        .timer-display {
+            font-size: 1.6rem;
+            font-weight: 800;
+            font-family: monospace;
+            color: var(--accent-green);
+            letter-spacing: 2px;
+        }
+
+        .timer-controls button {
+            background: var(--accent-blue);
+            color: #ffffff;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            cursor: pointer;
+            margin-left: 6px;
+        }
+
+        .timer-controls button.reset-btn {
+            background: #21262d;
+            color: var(--text-secondary);
+            border: 1px solid var(--card-border);
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 15px 0 25px 0;
+            border-bottom: 1px solid var(--card-border);
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            color: var(--accent-blue);
+            margin-bottom: 6px;
+            font-weight: 800;
+        }
+
+        .header p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Script Section Card */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 18px 16px;
+            margin-bottom: 22px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .time-badge {
+            display: inline-flex;
+            align-items: center;
+            background: rgba(88, 166, 255, 0.15);
+            color: var(--accent-blue);
+            border: 1px solid var(--accent-blue);
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            color: #ffffff;
+            margin-bottom: 12px;
+            font-weight: 700;
+        }
+
+        /* Action Cue Box */
+        .cue-box {
+            background: var(--cue-bg);
+            border-left: 4px solid var(--cue-border);
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 14px;
+            font-size: 0.92rem;
+            color: #d2a8ff;
+        }
+
+        .cue-box strong {
+            color: #f0883e;
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* Speech Content */
+        .speech {
+            font-size: 1.12rem;
+            color: #f0f6fc;
+            line-height: 2.0;
+            padding-left: 2px;
+        }
+
+        .speech p {
+            margin-bottom: 14px;
+        }
+
+        .speech strong {
+            color: #58a6ff;
+        }
+
+        .highlight-term {
+            background: rgba(63, 185, 80, 0.15);
+            color: #7ee787;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        /* Quick Tips */
+        .tips-card {
+            background: #1c2128;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 30px;
+        }
+
+        .tips-card h3 {
+            color: var(--accent-orange);
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+
+        .tips-card ul {
+            padding-left: 20px;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .tips-card li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sticky Stopwatch / Timer -->
+    <div class="timer-bar">
+        <div>
+            <span style="font-size: 0.75rem; color: var(--text-secondary); display: block; text-transform: uppercase;">Stopwatch</span>
+            <span class="timer-display" id="display">00:00</span>
+        </div>
+        <div class="timer-controls">
+            <button id="startBtn" onclick="toggleTimer()">▶ စတင်ရန်</button>
+            <button class="reset-btn" onclick="resetTimer()">↺ ပြန်စ</button>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <div class="header">
+        <h1>🛡️ Sentinel WIDS — Presentation Script</h1>
+        <p>၇ မိနစ် Screen Recording & Voiceover Teleprompter Guide</p>
+    </div>
+
+    <!-- Section 1 -->
+    <div class="card">
+        <div class="time-badge">⏱️ 0:00 - 1:00 (၁ မိနစ်)</div>
+        <h2>၁။ Title & Wi-Fi Security Problem</h2>
+        
+        <div class="cue-box">
+            <strong>🖥️ SCREEN ACTION (မျက်နှာပြင်တွင် လုပ်ဆောင်ရန်):</strong>
+            Slide 1 ပုံ (WIDS Overview & Threat Landscape) ကို ပြထားပါ။ "Deauthentication Attack" နှင့် "Evil Twin" စာသားများကို Mouse ဖြင့် ညွှန်ပြပါ။
+        </div>
+
+        <div class="speech">
+            <p>
+                "မင်္ဂလာပါ ခင်ဗျာ။ ဒီကနေ့ ကျွန်တော် တင်ဆက်ပေးသွားမယ့် ပရောဂျက်ကတော့ <strong>Sentinel WIDS — Wireless Intrusion Detection System</strong> ဖြစ်ပါတယ်။
+            </p>
+            <p>
+                ယနေ့ခေတ်မှာ ကျွန်တော်တို့ အသုံးပြုနေတဲ့ Wi-Fi ကွန်ရက်တွေဟာ အင်တာနက် Data Payload တွေကို ကုဒ်ဝှက် (<span class="highlight-term">Encrypt</span>) ထားပေမဲ့ ကွန်ရက် ချိတ်ဆက်မှု ထိန်းချုပ်တဲ့ <strong>802.11 Management Frames (ဥပမာ- Beacons, Probes, Deauthentications)</strong> တွေကတော့ လေထဲမှာ Unencrypted အနေနဲ့ ပျံလွင့်နေပါတယ်။
+            </p>
+            <p>
+                ဒါကြောင့် Hacker တစ်ယောက်အနေနဲ့-
+                <br>• ပထမဆုံး <strong>Deauthentication Attack</strong> လုပ်ပြီး သင့်ဖုန်းနဲ့ ကွန်ပျူတာကို Wi-Fi ကနေ ပြုတ်ကျအောင် အချိန်မရွေး လုပ်နိုင်ပါတယ်။
+                <br>• အဲ့ဒီနောက် နာမည်တူ <strong>Evil Twin Access Point အတု</strong> ဖွင့်ပြီး သင့်ရဲ့ Data တွေ၊ Password တွေကို ကြားဖြတ်ခိုးယူ (<span class="highlight-term">MITM</span>) သွားနိုင်ပါတယ်။
+                <br>• Local Network ထဲ ရောက်သွားပါကလည်း <strong>ARP Spoofing</strong> လုပ်ပြီး Traffic အားလုံးကို သူ့ဆီ လမ်းကြောင်းလွှဲနိုင်ပါတယ်။
+            </p>
+            <p>
+                ရိုးရိုး ကွန်ပျူတာ Firewall တွေက ဒီ Layer-2 Wi-Fi တိုက်ခိုက်မှုတွေကို မသိနိုင်ပါဘူး။ ဒါကို ဖြေရှင်းဖို့ ကျွန်တော်တို့က Hardware နဲ့ Software ပေါင်းစပ်ထားတဲ့ <strong>Sentinel WIDS</strong> ကို ဖန်တီးခဲ့တာ ဖြစ်ပါတယ်။"
+            </p>
+        </div>
+    </div>
+
+    <!-- Section 2 -->
+    <div class="card">
+        <div class="time-badge">⏱️ 1:00 - 2:15 (၁ မိနစ် ၁၅ စက္ကန့်)</div>
+        <h2>၂။ Hardware & Software Architecture</h2>
+        
+        <div class="cue-box">
+            <strong>🖥️ SCREEN ACTION (မျက်နှာပြင်တွင် လုပ်ဆောင်ရန်):</strong>
+            Slide 2 ပုံ (Hardware & Software Architecture Diagram) သို့ ပြောင်းပါ။ ESP32 -> I2S DAC Audio -> USB JSON Stream မြှားများကို ညွှန်ပြပါ။
+        </div>
+
+        <div class="speech">
+            <p>
+                "ကျွန်တော်တို့ စနစ်ရဲ့ Architecture ကို Hardware နဲ့ Software အပိုင်း (၂) ပိုင်းနဲ့ တွဲဖက် တည်ဆောက်ထားပါတယ်-
+            </p>
+            <p>
+                <strong>၁။ Hardware Sniffer & Audio Alarm (ESP32):</strong><br>
+                ကွန်ပျူတာ Operating System တွေရဲ့ Wi-Fi Card ကန့်သတ်ချက်ကို ကျော်လွှားဖို့အတွက် ကုန်ကျစရိတ် သက်သာတဲ့ <strong>ESP32 Microcontroller</strong> ကို သုံးထားပါတယ်။ ESP32 ဟာ 2.4GHz Wi-Fi Channel 1 ကနေ 13 အထိ ၂၀၀ မီလီစက္ကန့်တစ်ကြိမ် Channel Hopping လုပ်ပြီး လေထဲက Management Frame တွေကို <span class="highlight-term">Promiscuous Mode</span> နဲ့ တိုက်ရိုက် ဖမ်းယူပါတယ်။
+            </p>
+            <p>
+                ထူးခြားချက်ကတော့ ESP32 ရဲ့ Core 0 ကနေ Packet တွေကို Queue ထဲထည့်ပြီး USB Serial ကတစ်ဆင့် ကွန်ပျူတာဆီ JSON format နဲ့ ပို့ပေးနေချိန်မှာ၊ Core 1 ကတော့ <strong>MAX98357A I2S DAC Amplifier</strong> နဲ့ ချိတ်ဆက်ထားတဲ့ Speaker ကတစ်ဆင့် တိုက်ခိုက်မှုတွေ့ရင် Hardware အသံ အချက်ပေးသံ ထုတ်ပေးနိုင်အောင် FreeRTOS DMA Task နဲ့ အလုပ်လုပ်ပါတယ်။
+            </p>
+            <p>
+                <strong>၂။ Python IDS Backend:</strong><br>
+                ကွန်ပျူတာဘက်ခြမ်းမှာတော့ Serial Data တွေကို ဖတ်ယူပြီး Multi-Heuristic Scoring Engines တွေနဲ့ Attack တွေကို Real-Time စစ်ဆေးပေးပါတယ်။"
+            </p>
+        </div>
+    </div>
+
+    <!-- Section 3 -->
+    <div class="card">
+        <div class="time-badge">⏱️ 2:15 - 3:30 (၁ မိနစ် ၁၅ စက္ကန့်)</div>
+        <h2>၃။ Core Detection Engines (Logic ၃ မျိုး)</h2>
+        
+        <div class="cue-box">
+            <strong>🖥️ SCREEN ACTION (မျက်နှာပြင်တွင် လုပ်ဆောင်ရန်):</strong>
+            Slide / Architecture Flowchart ရှိ Evil Twin, Deauth, ARP Spoof Logic များကို တစ်ချက်ချင်းစီ ထောက်ပြပါ။
+        </div>
+
+        <div class="speech">
+            <p>
+                "Sentinel WIDS မှာ အဓိက တိုက်ခိုက်မှု (၃) မျိုးကို အဆင့်မြင့် Logic တွေနဲ့ ထောက်လှမ်းပေးပါတယ်-
+            </p>
+            <p>
+                <strong>ပထမတစ်ခုက Evil Twin Detection:</strong><br>
+                စနစ်က တကယ့် Legit Wi-Fi ရဲ့ MAC Address (BSSID) ကို မှတ်သားထားပါတယ်။ Attacker က နာမည်တူ SSID နဲ့ လာလွှင့်ရင် Signal Delta (RSSI)၊ Channel ကွဲလွဲမှု၊ OUI Vendor Database နဲ့ Locally Administered MAC Address စတဲ့ အချက် (၆) ချက်ပါ Multi-Heuristic Scorer နဲ့ တိကျစွာ ခွဲခြားဖမ်းဆီးပါတယ်။
+            </p>
+            <p>
+                <strong>ဒုတိယတစ်ခုက Deauth DoS Flood Detection:</strong><br>
+                Packet Rate၊ Broadcast Target၊ Victim Count၊ Reason Code ပုံစံနဲ့ Attack Tool တွေရဲ့ Fixed Interval Timing စတဲ့ အချက် (၈) ချက်ပါ Engine နဲ့ စစ်ဆေးပြီး Spam Alert တွေ မဖြစ်အောင် Cooldown စနစ်နဲ့ ထိန်းချုပ်ထားပါတယ်။
+            </p>
+            <p>
+                <strong>တတိယတစ်ခုက ARP Spoofing & Gateway Impersonation:</strong><br>
+                Local Subnet မှာ Gateway MAC အတုလုပ်တာကို Scapy နဲ့ ဖမ်းယူရုံသာမက ESP32 လေထဲက ဖမ်းမိတဲ့ BSSID နဲ့ Cross-Reference လုပ်ပြီး <strong>`HARDWARE_VERIFIED`</strong> အဆင့် ရောက်မှသာ Gateway အစစ်အဖြစ် သတ်မှတ်ပေးပါတယ်။"
+            </p>
+        </div>
+    </div>
+
+    <!-- Section 4 -->
+    <div class="card">
+        <div class="time-badge">⏱️ 3:30 - 5:15 (၁ မိနစ် ၄၅ စက္ကန့်)</div>
+        <h2>၄။ Live GUI Application Demo</h2>
+        
+        <div class="cue-box">
+            <strong>🖥️ SCREEN ACTION (မျက်နှာပြင်တွင် လုပ်ဆောင်ရန်):</strong>
+            WIDS App (main.py) ကို Full Screen ပြပါ။<br>
+            • 3:30 -> User View Shield & Radar ကို ပြပါ<br>
+            • 3:55 -> Technician View သို့ Switch လုပ်ပါ<br>
+            • 4:15 -> Live Packet Table မှ Packet ကို Click ပြပြီး Inspector အောက်က OUI Vendor ကို ပြပါ<br>
+            • 4:40 -> Dark/Light Theme Switcher နှိပ်ပြပါ<br>
+            • 4:55 -> Threat/Packet Counter လေးများ Live တက်နေပုံကို ပြပါ။
+        </div>
+
+        <div class="speech">
+            <p>
+                "အခု ကျွန်တော်တို့ရဲ့ CustomTkinter Modern GUI ကို တိုက်ရိုက် ကြည့်ရှုကြပါမယ်။
+            </p>
+            <p>
+                ပထမဆုံး မြင်တွေ့ရတာကတော့ <strong>User View</strong> ဖြစ်ပါတယ်။ ဒီ View ဟာ သာမန်အသုံးပြုသူတွေအတွက် ရည်ရွယ်ပြီး Network ရဲ့ လုံခြုံရေးအခြေအနေကို Shield အရောင်နဲ့ ရှင်းရှင်းလင်းလင်း ပြသထားသလို Radar Animation နဲ့ စောင့်ကြည့်နေပါတယ်။ Alert ဖြစ်ပေါ်လာပါကလည်း နားလည်လွယ်တဲ့ ရှင်းလင်းချက်တွေနဲ့ ပြသပေးပါတယ်။
+            </p>
+            <p>
+                ဆက်လက်ပြီး Network Engineer တွေအတွက် <strong>Technician View</strong> ကို ပြောင်းပြပါမယ်။ <em>(View Switch ခလုတ်ကို နှိပ်ပြပါ)</em>
+            </p>
+            <p>
+                ဒီ Technician Dashboard မှာ-
+                <br>• လေထဲက ဖမ်းယူရရှိတဲ့ 802.11 Packets (Beacons, Probes, Deauths) တွေကို Signal ခွန်အား၊ Channel၊ Vendor Name တွေနဲ့ Live Stream အနေနဲ့ တွေ့မြင်နိုင်ပါတယ်။
+                <br>• Packet တစ်ခုကို နှိပ်လိုက်ရင် အသေးစိတ် အချက်အလက်တွေကို Packet Inspector မှာ ကြည့်ရှုနိုင်သလို OUI Database ကနေပြီး ဒါဟာ Router လား၊ Phone လား၊ Laptop လားဆိုတာ ခွဲခြားပေးပါတယ်။
+                <br>• စုစုပေါင်း Packets နဲ့ Threats အရေအတွက်ကိုလည်း Animated Counters တွေနဲ့ ပြသပေးထားပါတယ်။
+                <br>• Dashboard Theme ကိုလည်း မိမိစိတ်ကြိုက် <strong>Dark Mode သို့မဟုတ် Light Mode</strong> အလွယ်တကူ ပြောင်းလဲနိုင်ပါတယ်။ <em>(Theme ပြောင်းပြပါ)</em>
+            </p>
+            <p>
+                တိုက်ခိုက်မှု တွေ့ရှိပါက Host PC မှ J.A.R.V.I.S Voice အသံ သတိပေးသလို ESP32 Speaker မှလည်း Hardware Alarm အသံ ချက်ချင်း ထွက်ပေါ်လာမှာ ဖြစ်ပါတယ်။"
+            </p>
+        </div>
+    </div>
+
+    <!-- Section 5 -->
+    <div class="card">
+        <div class="time-badge">⏱️ 5:15 - 6:15 (၁ မိနစ်)</div>
+        <h2>၅။ Testing & Project Values</h2>
+        
+        <div class="cue-box">
+            <strong>🖥️ SCREEN ACTION (မျက်နှာပြင်တွင် လုပ်ဆောင်ရန်):</strong>
+            Terminal Window (Unit Tests 30+ Tests OK) သို့မဟုတ် Key Benefits Summary Slide ကို ပြပါ။
+        </div>
+
+        <div class="speech">
+            <p>
+                "Sentinel WIDS ရဲ့ တိကျစိတ်ချရမှုအတွက် Automated Unit Tests ပေါင်း ၃၀ ကျော်နဲ့ Deauth Scoring Engine၊ ARP Sniffer နဲ့ Gateway Resolver တွေကို အဆင့်တိုင်း စနစ်တကျ စစ်ဆေးတည်ဆောက်ထားပါတယ်။
+            </p>
+            <p>
+                ဒီ ပရောဂျက်ရဲ့ ထူးခြားတဲ့ အားသာချက် (၃) ချက်ကတော့-
+                <br><strong>၁။ Zero-Cloud & Privacy First:</strong> အင်တာနက် Cloud လုံးဝ မလိုပါဘူး။ Data Payload တွေကို မဖမ်းဘဲ Management Headers တွေကိုသာ စစ်ဆေးတာကြောင့် အသုံးပြုသူရဲ့ Privacy ကို ၁၀၀% အပြည့်အဝ ကာကွယ်ပေးပါတယ်။
+                <br><strong>၂။ Low Cost & Accessible:</strong> စျေးကြီးတဲ့ Enterprise IDS Appliance တွေ မလိုဘဲ ၁၅ ဒေါ်လာဝန်းကျင် Component လေးတွေနဲ့ အဆင့်မြင့် ကာကွယ်ရေးစနစ်ကို တည်ဆောက်နိုင်ပါတယ်။
+                <br><strong>၃။ Dual-Layer Alerting:</strong> ကွန်ပျူတာ ပိတ်ထားရင်တောင် ESP32 Hardware Speaker ကနေ အသံနဲ့ တိုက်ရိုက် သတိပေးနိုင်စွမ်း ရှိပါတယ်။"
+            </p>
+        </div>
+    </div>
+
+    <!-- Section 6 -->
+    <div class="card">
+        <div class="time-badge">⏱️ 6:15 - 7:00 (၄၅ စက္ကန့်)</div>
+        <h2>၆။ Future Roadmap & Conclusion</h2>
+        
+        <div class="cue-box">
+            <strong>🖥️ SCREEN ACTION (မျက်နှာပြင်တွင် လုပ်ဆောင်ရန်):</strong>
+            Roadmap & Thank You Slide ကို ပြသထားပါ။
+        </div>
+
+        <div class="speech">
+            <p>
+                "ရှေ့ဆက်ပြီးတော့ ကျွန်တော်တို့စနစ်ကို <strong>ESP32-C6 Chipset</strong> တွေ အသုံးပြုကာ <strong>5GHz နဲ့ Wi-Fi 6 (802.11ax)</strong> Band တွေအထိ တိုးချဲ့စောင့်ကြည့်နိုင်အောင် ပြုလုပ်သွားမှာ ဖြစ်သလို၊ Rogue AP တွေ့ပါက အလိုအလျောက် Jamming ပြုလုပ်ပြီး တားဆီးမယ့် Active Countermeasure Feature တွေကိုပါ ထပ်မံ ထည့်သွင်းသွားမှာ ဖြစ်ပါတယ်။
+            </p>
+            <p>
+                နိဂုံးချုပ်အနေနဲ့ Sentinel WIDS ဟာ ခေတ်သစ် Wi-Fi ခြိမ်းခြောက်မှုတွေကို လျင်မြန်တိကျစွာ စောင့်ကြည့်ဖော်ထုတ်ပေးနိုင်တဲ့ ယုံကြည်စိတ်ချရသော Wireless Intrusion Detection System တစ်ခု ဖြစ်ပါတယ်။
+            </p>
+            <p>
+                အားလုံးကို အထူးပင် ကျေးဇူးတင်ရှိပါတယ် ခင်ဗျာ။"
+            </p>
+        </div>
+    </div>
+
+    <!-- Tips -->
+    <div class="tips-card">
+        <h3>💡 ဖုန်းထဲမှာ ကြည့်ရင်း အသံသွင်းရာတွင် အကြံပြုချက်:</h3>
+        <ul>
+            <li>ဖုန်းကို Screen Auto-Lock / Sleep မဖြစ်အောင် Screen Timeout ကို 10 mins ထားပါ။</li>
+            <li>အပေါ်က <strong>"▶ စတင်ရန်"</strong> ခလုတ်ကို နှိပ်ပြီး မိနစ်အချိန်ကိုက် ဖတ်ရှု ပြောဆိုနိုင်ပါတယ်။</li>
+            <li>စကားကို အေးအေးဆေးဆေး ပုံမှန်အရှိန်ဖြင့် ပြောပါ။ စာလုံးတစ်လုံးချင်း ရှင်းလင်းစွာ ထွက်ပါစေ။</li>
+        </ul>
+    </div>
+
+    <script>
+        let seconds = 0;
+        let timer = null;
+        const display = document.getElementById('display');
+        const startBtn = document.getElementById('startBtn');
+
+        function formatTime(s) {
+            const mins = Math.floor(s / 60);
+            const secs = s % 60;
+            return (mins < 10 ? '0' : '') + mins + ':' + (secs < 10 ? '0' : '') + secs;
+        }
+
+        function toggleTimer() {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+                startBtn.innerText = '▶ ဆက်ရန်';
+                startBtn.style.background = '#58a6ff';
+            } else {
+                timer = setInterval(() => {
+                    seconds++;
+                    display.innerText = formatTime(seconds);
+                    if (seconds >= 420) { // 7 mins
+                        display.style.color = '#f85149';
+                    }
+                }, 1000);
+                startBtn.innerText = '⏸ ရပ်ရန်';
+                startBtn.style.background = '#d29922';
+            }
+        }
+
+        function resetTimer() {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+            seconds = 0;
+            display.innerText = '00:00';
+            display.style.color = 'var(--accent-green)';
+            startBtn.innerText = '▶ စတင်ရန်';
+            startBtn.style.background = '#58a6ff';
+        }
+    </script>
+</body>
+</html>

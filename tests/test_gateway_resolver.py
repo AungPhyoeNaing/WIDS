@@ -26,9 +26,10 @@ class TestGatewayResolverInit(unittest.TestCase):
 class TestGatewayResolve(unittest.TestCase):
     """Tests for dynamic gateway resolution."""
 
+    @patch("ids.wifi_memory.get_or_set_legit_wifi", return_value=None)
     @patch("ids.gateway_resolver.lookup_oui")
     @patch("ids.gateway_resolver.is_network_equipment")
-    def test_resolve_with_network_equipment_vendor(self, mock_is_net, mock_lookup):
+    def test_resolve_with_network_equipment_vendor(self, mock_is_net, mock_lookup, mock_legit):
         """Gateway with a known router vendor gets VENDOR_VERIFIED."""
         mock_lookup.return_value = ("TP-Link", "network_equipment")
         mock_is_net.return_value = True
@@ -47,10 +48,11 @@ class TestGatewayResolve(unittest.TestCase):
         self.assertEqual(resolver.gateway_mac, "78:8A:20:B4:35:5D")
         self.assertEqual(resolver.confidence, "VENDOR_VERIFIED")
 
+    @patch("ids.wifi_memory.get_or_set_legit_wifi", return_value=None)
     @patch("ids.gateway_resolver.lookup_oui")
     @patch("ids.gateway_resolver.is_network_equipment")
     @patch("ids.gateway_resolver.is_consumer_device")
-    def test_resolve_with_consumer_device_vendor(self, mock_is_consumer, mock_is_net, mock_lookup):
+    def test_resolve_with_consumer_device_vendor(self, mock_is_consumer, mock_is_net, mock_lookup, mock_legit):
         """Gateway with a consumer device vendor gets FIRST_SEEN (suspicious)."""
         mock_lookup.return_value = ("Intel", "consumer_device")
         mock_is_net.return_value = False
@@ -69,7 +71,8 @@ class TestGatewayResolve(unittest.TestCase):
         self.assertEqual(resolver.confidence, "FIRST_SEEN")
         self.assertEqual(resolver.gateway_vendor, "Intel")
 
-    def test_resolve_fails_gracefully(self):
+    @patch("ids.wifi_memory.get_or_set_legit_wifi", return_value=None)
+    def test_resolve_fails_gracefully(self, mock_legit):
         """Resolve should return False and not crash if scapy fails."""
         resolver = GatewayResolver()
 
